@@ -524,7 +524,7 @@ export default function FloorEditor() {
 
           <div className="map-panel" style={{ width: '66vw', minWidth: 0 }}>
             <FloorCanvas
-              imageUrl={`/api${floor.imagePath}`}
+              imageUrl={floor.imagePath}
               nodes={floorCanvasNodes}
               edges={floorEdges}
               poiNodeIds={poiNodeIds}
