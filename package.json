@@ -1,0 +1,9 @@
+{
+  "name": "indoor-wayfinding",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:all": "npm install --prefix client && npm install --prefix server",
+    "vercel-build": "npm run build --prefix client"
+  }
+}

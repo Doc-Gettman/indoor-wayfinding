@@ -40,19 +40,21 @@ export const api = {
     request(`/buildings/${buildingId}/floors/${floorId}`, { method: 'PUT', body: json(data) }),
   deleteFloor: (buildingId, floorId) => request(`/buildings/${buildingId}/floors/${floorId}`, { method: 'DELETE' }),
   uploadFloorImage: async (buildingId, floorId, file) => {
-    const form = new FormData();
-    form.append('image', file);
-    const res = await fetch(`${BASE}/buildings/${buildingId}/floors/${floorId}/image`, {
+    const extension = `.${file.name.split('.').pop().toLowerCase()}`;
+    const { signedUrl, publicUrl } = await request(`/buildings/${buildingId}/floors/${floorId}/image-upload-url`, {
       method: 'POST',
-      credentials: 'include',
-      body: form,
+      body: json({ contentType: file.type, extension }),
     });
-    if (!res.ok) {
-      if (res.status === 401) notifyAuthExpired();
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Request failed: ${res.status}`);
-    }
-    return res.json();
+    const uploadRes = await fetch(signedUrl, {
+      method: 'PUT',
+      headers: { 'content-type': file.type },
+      body: file,
+    });
+    if (!uploadRes.ok) throw new Error(`Image upload failed: ${uploadRes.status}`);
+    return request(`/buildings/${buildingId}/floors/${floorId}/image`, {
+      method: 'POST',
+      body: json({ imagePath: `${publicUrl}?v=${Date.now()}` }),
+    });
   },
 
   listNodes: (buildingId) => request(`/buildings/${buildingId}/nodes`),

@@ -190,7 +190,7 @@ export async function generateLLMDirections(input) {
           content: `Generate directions from this route data:\n\n${JSON.stringify(description, null, 2)}`,
         },
       ],
-    });
+    }, { timeout: 20000 });
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock) return null;

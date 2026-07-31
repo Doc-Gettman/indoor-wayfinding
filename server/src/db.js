@@ -1,63 +1,41 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const DATA_DIR = path.join(__dirname, '..', 'data');
-export const IMAGES_DIR = path.join(DATA_DIR, 'images');
-export const BUILDINGS_FILE = path.join(DATA_DIR, 'buildings.json');
-
-async function ensureDir(dir) {
-  await fs.mkdir(dir, { recursive: true });
-}
-
-async function readJson(file, fallback) {
-  try {
-    const raw = await fs.readFile(file, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code === 'ENOENT') return fallback;
-    throw err;
-  }
-}
-
-async function writeJson(file, data) {
-  await ensureDir(path.dirname(file));
-  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-export function buildingDir(buildingId) {
-  return path.join(DATA_DIR, 'buildings', buildingId);
-}
-
-function collectionFile(buildingId, name) {
-  return path.join(buildingDir(buildingId), `${name}.json`);
-}
+export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 export async function listBuildings() {
-  return readJson(BUILDINGS_FILE, []);
+  const { data, error } = await supabase.from('buildings').select('id, name').order('name');
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function saveBuildings(buildings) {
-  await writeJson(BUILDINGS_FILE, buildings);
+  const { error: deleteError } = await supabase.from('buildings').delete().not('id', 'is', null);
+  if (deleteError) throw deleteError;
+  if (buildings.length) {
+    const { error: insertError } = await supabase.from('buildings').insert(buildings);
+    if (insertError) throw insertError;
+  }
 }
 
 export async function getCollection(buildingId, name) {
-  return readJson(collectionFile(buildingId, name), []);
+  const { data, error } = await supabase
+    .from('building_collections')
+    .select('data')
+    .eq('building_id', buildingId)
+    .eq('name', name)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.data ?? [];
 }
 
 export async function saveCollection(buildingId, name, data) {
-  await writeJson(collectionFile(buildingId, name), data);
+  const { error } = await supabase
+    .from('building_collections')
+    .upsert({ building_id: buildingId, name, data, updated_at: new Date().toISOString() });
+  if (error) throw error;
 }
 
-export async function buildingImagesDir(buildingId) {
-  const dir = path.join(IMAGES_DIR, 'buildings', buildingId, 'floors');
-  await ensureDir(dir);
-  return dir;
-}
-
-let idCounter = Date.now();
 export function nextId(prefix) {
-  idCounter += 1;
-  return `${prefix}-${idCounter.toString(36)}`;
+  return `${prefix}-${crypto.randomUUID()}`;
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { setAdminCookie, clearAdminCookie, readAdminSession } from '../lib/adminSession.js';
 
 export const authRouter = Router();
 
@@ -10,17 +11,15 @@ authRouter.post('/login', (req, res) => {
   if (password !== process.env.ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Incorrect password' });
   }
-  req.session.isAdmin = true;
-  req.session.save((err) => {
-    if (err) return res.status(500).json({ error: 'Could not save admin session' });
-    res.json({ ok: true });
-  });
+  setAdminCookie(res);
+  res.json({ ok: true });
 });
 
 authRouter.post('/logout', (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+  clearAdminCookie(res);
+  res.json({ ok: true });
 });
 
 authRouter.get('/session', (req, res) => {
-  res.json({ isAdmin: Boolean(req.session?.isAdmin) });
+  res.json({ isAdmin: Boolean(readAdminSession(req)?.isAdmin) });
 });

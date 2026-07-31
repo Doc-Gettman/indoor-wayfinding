@@ -1,0 +1,7 @@
+{
+  "installCommand": "npm run install:all",
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": "client/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "functions": { "api/[...slug].js": { "maxDuration": 30 } }
+}
