@@ -1,0 +1,75 @@
+import { Router } from 'express';
+import { getCollection, saveCollection, nextId } from '../db.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { syncTransitionEdges, removeTransitionEdges } from '../lib/transitions.js';
+
+export const nodesRouter = Router({ mergeParams: true });
+
+nodesRouter.get('/', async (req, res) => {
+  res.json(await getCollection(req.params.buildingId, 'nodes'));
+});
+
+nodesRouter.post('/', requireAdmin, async (req, res) => {
+  const { floorId, x, y, label, nodeType, transitionSubtype, transitionGroupId, transitionGroupName, doorDescription } = req.body || {};
+  if (!floorId || x === undefined || y === undefined) {
+    return res.status(400).json({ error: 'floorId, x, and y are required' });
+  }
+  const nodes = await getCollection(req.params.buildingId, 'nodes');
+  const node = {
+    id: nextId('node'),
+    floorId,
+    x,
+    y,
+    label: label || '',
+    nodeType: nodeType || 'waypoint',
+    transitionSubtype: transitionSubtype || null,
+    transitionGroupId: transitionGroupId || null,
+    transitionGroupName: nodeType === 'transition' ? transitionGroupName || '' : null,
+    doorDescription: nodeType === 'door' ? doorDescription || '' : null,
+  };
+  nodes.push(node);
+  await saveCollection(req.params.buildingId, 'nodes', nodes);
+
+  if (node.nodeType === 'transition' && node.transitionGroupId) {
+    const edges = await getCollection(req.params.buildingId, 'edges');
+    const updated = syncTransitionEdges(nodes, edges, node);
+    await saveCollection(req.params.buildingId, 'edges', updated);
+  }
+
+  res.status(201).json(node);
+});
+
+nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
+  const nodes = await getCollection(req.params.buildingId, 'nodes');
+  const index = nodes.findIndex((n) => n.id === req.params.nodeId);
+  if (index === -1) return res.status(404).json({ error: 'Node not found' });
+  nodes[index] = { ...nodes[index], ...req.body, id: nodes[index].id };
+  if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId && req.body?.transitionGroupName !== undefined) {
+    for (const node of nodes) {
+      if (node.id !== nodes[index].id && node.transitionGroupId === nodes[index].transitionGroupId) {
+        node.transitionGroupName = nodes[index].transitionGroupName || '';
+      }
+    }
+  }
+  await saveCollection(req.params.buildingId, 'nodes', nodes);
+
+  if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId) {
+    const edges = await getCollection(req.params.buildingId, 'edges');
+    const updated = syncTransitionEdges(nodes, edges, nodes[index]);
+    await saveCollection(req.params.buildingId, 'edges', updated);
+  }
+
+  res.json(nodes[index]);
+});
+
+nodesRouter.delete('/:nodeId', requireAdmin, async (req, res) => {
+  const nodes = await getCollection(req.params.buildingId, 'nodes');
+  const filtered = nodes.filter((n) => n.id !== req.params.nodeId);
+  await saveCollection(req.params.buildingId, 'nodes', filtered);
+
+  const edges = await getCollection(req.params.buildingId, 'edges');
+  const updatedEdges = removeTransitionEdges(edges, req.params.nodeId);
+  await saveCollection(req.params.buildingId, 'edges', updatedEdges);
+
+  res.json({ ok: true });
+});

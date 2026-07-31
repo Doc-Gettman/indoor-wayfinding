@@ -1,0 +1,204 @@
+import Anthropic from '@anthropic-ai/sdk';
+
+const DEFAULT_PIXELS_PER_FOOT = 10;
+const DEFAULT_LANDMARK_VISIBILITY_FEET = 30;
+
+function bearing(a, b) {
+  return Math.atan2(b.y - a.y, b.x - a.x) * (180 / Math.PI);
+}
+
+function normalizeAngleDiff(diff) {
+  let d = diff % 360;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return d;
+}
+
+function clockDirection(diff) {
+  const hourOffset = Math.round(diff / 30);
+  return ((hourOffset + 11) % 12) + 1;
+}
+
+function relativeSide(diff) {
+  if (Math.abs(diff) < 20) return 'ahead';
+  if (Math.abs(diff) > 160) return 'behind';
+  return diff > 0 ? 'right' : 'left';
+}
+
+function relativeDirection(fromHeading, toHeading) {
+  if (fromHeading === null || toHeading === null) return null;
+  const diff = normalizeAngleDiff(toHeading - fromHeading);
+  return {
+    side: relativeSide(diff),
+    clock: `${clockDirection(diff)} o'clock`,
+    degrees: Math.round(diff),
+  };
+}
+
+// Finds landmarks that sit near a path segment, and which side of the
+// walker's direction of travel they fall on. Mirrors the POI-annotation
+// geometry in lib/directions.js but returns structured data (for the LLM
+// prompt) instead of pre-formatted text.
+function nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return [];
+
+  const found = [];
+  for (const lm of landmarks) {
+    if (lm.floorId !== from.floorId) continue;
+    const px = lm.x - from.x;
+    const py = lm.y - from.y;
+    const t = (px * dx + py * dy) / lengthSq;
+    if (t < 0.15 || t > 1.15) continue;
+
+    const perpDist = Math.abs(dx * py - dy * px) / Math.sqrt(lengthSq);
+    const visibilityRadiusFeet = Math.max(1, Number(lm.visibilityRadiusFeet) || DEFAULT_LANDMARK_VISIBILITY_FEET);
+    const visibilityRadiusPx = visibilityRadiusFeet * pixelsPerFoot;
+    if (perpDist > visibilityRadiusPx) continue;
+
+    const cross = dx * py - dy * px;
+    const landmarkHeading = bearing(from, lm);
+    const relative = relativeDirection(heading, landmarkHeading);
+    found.push({
+      name: lm.name,
+      description: lm.description || null,
+      side: cross < 0 ? 'left' : 'right',
+      clock: relative?.clock || null,
+      approxFeetAwayFromPath: Math.round(perpDist / pixelsPerFoot),
+      visibilityRadiusFeet,
+    });
+  }
+  return found.sort((a, b) => a.approxFeetAwayFromPath - b.approxFeetAwayFromPath).slice(0, 4);
+}
+
+function buildPathDescription({ pathNodes, pathEdges, floorsById, landmarks, destination, origin }) {
+  const segments = [];
+  let previousHeading = null;
+
+  for (let i = 0; i < pathEdges.length; i += 1) {
+    const edge = pathEdges[i];
+    const from = pathNodes[i];
+    const to = pathNodes[i + 1];
+    const nextEdge = pathEdges[i + 1] || null;
+    const nextNode = pathNodes[i + 2] || null;
+
+    if (edge.type === 'elevator' || edge.type === 'stairs') {
+      segments.push({
+        type: 'transition',
+        vehicle: edge.type,
+        fromFloor: floorsById.get(from.floorId)?.name || from.floorId,
+        toFloor: floorsById.get(to.floorId)?.name || to.floorId,
+        exitLabel: to.label || null,
+      });
+      previousHeading = null;
+      continue;
+    }
+
+    const pixelsPerFoot = floorsById.get(from.floorId)?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
+    const distancePx = Math.hypot(to.x - from.x, to.y - from.y);
+    const heading = bearing(from, to);
+    const nextHeading = nextNode ? bearing(to, nextNode) : null;
+    const upcomingDoorIndex = pathNodes.findIndex((node, index) => index > i + 1 && node.nodeType === 'door');
+    const upcomingDoor = upcomingDoorIndex === -1 ? null : pathNodes[upcomingDoorIndex];
+    const upcomingDoorHeading = upcomingDoor ? bearing(to, upcomingDoor) : null;
+    segments.push({
+      type: 'walk',
+      floor: floorsById.get(from.floorId)?.name || from.floorId,
+      edgeType: edge.type,
+      fromLabel: from.label || null,
+      fromType: from.nodeType,
+      fromDoorDescription: from.nodeType === 'door' ? from.doorDescription || null : null,
+      toLabel: to.label || null,
+      toType: to.nodeType,
+      toDoorDescription: to.nodeType === 'door' ? to.doorDescription || null : null,
+      approxFeet: Math.round(distancePx / pixelsPerFoot),
+      directionFromPrevious: relativeDirection(previousHeading, heading),
+      directionAfterArrival: nextEdge && to.nodeType !== 'door' ? relativeDirection(heading, nextHeading) : null,
+      upcomingDoorAfterArrival: upcomingDoor
+        ? {
+            label: upcomingDoor.label || null,
+            description: upcomingDoor.doorDescription || null,
+            relativeToArrivalDirection: relativeDirection(heading, upcomingDoorHeading),
+          }
+        : null,
+      nextNodeType: nextNode?.nodeType || null,
+      nextNodeLabel: nextNode?.label || null,
+      nextDoorDescription: nextNode?.nodeType === 'door' ? nextNode.doorDescription || null : null,
+      nearbyLandmarks: nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot),
+    });
+    previousHeading = heading;
+  }
+  return {
+    origin: origin ? { label: origin.label, nodeType: origin.nodeType, nodeLabel: origin.nodeLabel || null } : null,
+    segments,
+    destination: { name: destination.name, description: destination.description || null },
+  };
+}
+
+const SYSTEM_PROMPT = `You write short, natural, conversational indoor walking directions for visitors to a building (hospital, office, etc.) — the way a helpful staff member would describe them out loud, not mechanical GPS turn-by-turn output.
+
+Guidelines:
+- When a segment has a nearby landmark, describe the turn or hallway relative to that landmark instead of raw distance or compass direction — e.g. "go through the glass doors with the Kimley-Horn logo" or "facing away from the reception desk, head left past the sign that says Radiology".
+- Use directionFromPrevious and directionAfterArrival to articulate relative orientation when helpful, including clock directions like "to your right, about 2 o'clock". Prefer these over vague "continue straight" language after exiting a room or door.
+- Only mention distance in feet when no landmark is available for that segment.
+- Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
+- Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor," and mention what's near the exit if given.
+- Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
+- Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" using the first segment's approximate distance.
+- Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided.
+- When the route exits a named room through a door and upcomingDoorAfterArrival is present, use upcomingDoorAfterArrival.relativeToArrivalDirection as the visible-door cue: "After exiting..., you should see [door] to your [side] (about [clock]). Go through that door." Prefer this over directionAfterArrival for that exit.
+- Treat the first door immediately after the origin as the exit from that room; say "exit through..." or "leave through..." rather than describing it as a separate object off to the side.
+- If you mention an upcoming door in one step, do not repeat the same door in the next step. Fold the intervening movement into the same instruction.
+- For the final approach, if the last movement turns into a named destination, describe it as turning through the doorway/opening to reach that destination when that sounds natural.
+- Do not invent landmarks, room names, or details that are not present in the input data.
+- End with arrival at the named destination.
+- Respond with nothing but the JSON object described by the schema.`;
+
+// Generates natural-language directions via Claude, referencing configured
+// landmarks. Returns null (never throws) if no API key is configured or the
+// call fails for any reason, so callers can fall back to the deterministic
+// rule-based generator in lib/directions.js.
+export async function generateLLMDirections(input) {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+
+  try {
+    const description = buildPathDescription(input);
+    const anthropic = new Anthropic();
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 2000,
+      thinking: { type: 'adaptive' },
+      system: SYSTEM_PROMPT,
+      output_config: {
+        format: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              steps: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['steps'],
+            additionalProperties: false,
+          },
+        },
+      },
+      messages: [
+        {
+          role: 'user',
+          content: `Generate directions from this route data:\n\n${JSON.stringify(description, null, 2)}`,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (!textBlock) return null;
+    const parsed = JSON.parse(textBlock.text);
+    if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) return null;
+    return parsed.steps;
+  } catch (err) {
+    console.error('LLM direction generation failed, falling back to rule-based directions:', err.message);
+    return null;
+  }
+}
