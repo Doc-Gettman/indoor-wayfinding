@@ -100,7 +100,7 @@ function poiAnnotationsForSegment(from, to, pois, pathNodeIds) {
   return annotations;
 }
 
-export function generateDirections({ pathNodes, pathEdges, pois, floorsById, landmarks = [] }) {
+export function generateDirections({ pathNodes, pathEdges, allEdges, pois, floorsById, landmarks = [] }) {
   const pathNodeIds = new Set(pathNodes.map((n) => n.id));
   const poiByNodeId = new Map(pois.map((p) => [p.nodeId, p]));
   const poisWithNodes = pois
@@ -108,15 +108,25 @@ export function generateDirections({ pathNodes, pathEdges, pois, floorsById, lan
     .filter((p) => p.node);
 
   const instructions = [];
-  let segment = null; // { label, side, pixels, floorId }
+  let segment = null; // { label, side, pixels, floorId, exitContext }
   let prevHeading = null;
+  let pendingExitContext = null;
 
   function flushSegment() {
     if (!segment) return;
     const floor = floorsById.get(segment.floorId);
     const dist = distanceText(segment.pixels, floor?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT);
     let text;
-    if (segment.label === 'straight') {
+    if (segment.exitContext) {
+      // Right after an elevator/stairs arrival: never claim a left/right
+      // turn we can't back up, since the app doesn't know which car the
+      // visitor rode or which way they're facing.
+      if (segment.exitContext.exitOptionsCount <= 1) {
+        text = dist ? `Head the only way you can, ${dist}` : 'Head the only way you can from here';
+      } else {
+        text = dist ? `Continue from the landing for ${dist}` : 'Continue from the landing';
+      }
+    } else if (segment.label === 'straight') {
       text = dist ? `Walk straight ahead for ${dist}` : 'Walk straight ahead';
     } else if (segment.label === 'u-turn') {
       text = 'Make a U-turn';
@@ -135,14 +145,19 @@ export function generateDirections({ pathNodes, pathEdges, pois, floorsById, lan
     const from = pathNodes[i];
     const to = pathNodes[i + 1];
 
-    if (edge.type === 'elevator' || edge.type === 'stairs') {
+    if ((edge.type === 'elevator' || edge.type === 'stairs') && from.floorId !== to.floorId) {
       flushSegment();
       prevHeading = null;
       const destFloor = floorsById.get(to.floorId);
       const vehicle = edge.type === 'elevator' ? 'elevator' : 'stairs';
-      instructions.push(`Take the ${vehicle} to ${floorLabel(destFloor)}`);
+      const groupName = to.transitionGroupName || from.transitionGroupName || null;
+      instructions.push(`Take ${groupName ? `one of the ${groupName}` : `the ${vehicle}`} to ${floorLabel(destFloor)}`);
       const exitPoi = poiByNodeId.get(to.id);
       instructions.push(`Exit the ${vehicle}${exitPoi ? ` near ${exitPoi.name}` : ''}`);
+      const exitOptionsCount = (allEdges || []).filter(
+        (e) => e.id !== edge.id && (e.from === to.id || e.to === to.id)
+      ).length;
+      pendingExitContext = { exitOptionsCount };
       continue;
     }
 
@@ -155,7 +170,8 @@ export function generateDirections({ pathNodes, pathEdges, pois, floorsById, lan
     ];
 
     if (prevHeading === null) {
-      segment = { label: 'straight', side: null, pixels: 0, floorId: from.floorId, annotations: [] };
+      segment = { label: 'straight', side: null, pixels: 0, floorId: from.floorId, annotations: [], exitContext: pendingExitContext };
+      pendingExitContext = null;
     } else {
       const diff = normalizeAngleDiff(heading - prevHeading);
       const turn = classifyTurn(diff);

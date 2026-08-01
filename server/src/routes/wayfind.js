@@ -34,6 +34,7 @@ wayfindRouter.get('/', async (req, res) => {
   const llmInstructions = await generateLLMDirections({
     pathNodes: result.nodes,
     pathEdges: result.edges,
+    allEdges: edges,
     floorsById,
     landmarks,
     destination: destinationPoi,
@@ -50,6 +51,7 @@ wayfindRouter.get('/', async (req, res) => {
     generateDirections({
       pathNodes: result.nodes,
       pathEdges: result.edges,
+      allEdges: edges,
       pois,
       floorsById,
       landmarks,

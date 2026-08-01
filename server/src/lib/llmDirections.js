@@ -73,7 +73,7 @@ function nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot) 
   return found.sort((a, b) => a.approxFeetAwayFromPath - b.approxFeetAwayFromPath).slice(0, 4);
 }
 
-function buildPathDescription({ pathNodes, pathEdges, floorsById, landmarks, destination, origin }) {
+function buildPathDescription({ pathNodes, pathEdges, allEdges, floorsById, landmarks, destination, origin }) {
   const segments = [];
   let previousHeading = null;
 
@@ -84,13 +84,24 @@ function buildPathDescription({ pathNodes, pathEdges, floorsById, landmarks, des
     const nextEdge = pathEdges[i + 1] || null;
     const nextNode = pathNodes[i + 2] || null;
 
-    if (edge.type === 'elevator' || edge.type === 'stairs') {
+    if ((edge.type === 'elevator' || edge.type === 'stairs') && from.floorId !== to.floorId) {
+      // How many ways could the visitor walk from this landing, other than
+      // the ride they just took? Lets the prompt tell a forced single exit
+      // ("go the only way you can") apart from a real fork that needs a
+      // landmark or label to disambiguate — the app has no idea which
+      // physical car they rode or which way they're facing either way.
+      const exitOptionsCount = (allEdges || []).filter(
+        (e) => e.id !== edge.id && (e.from === to.id || e.to === to.id)
+      ).length;
       segments.push({
         type: 'transition',
         vehicle: edge.type,
         fromFloor: floorsById.get(from.floorId)?.name || from.floorId,
         toFloor: floorsById.get(to.floorId)?.name || to.floorId,
+        groupName: to.transitionGroupName || from.transitionGroupName || null,
         exitLabel: to.label || null,
+        arrivalOrientationUnknown: true,
+        exitOptionsCount,
       });
       previousHeading = null;
       continue;
@@ -144,7 +155,8 @@ Guidelines:
 - Use directionFromPrevious and directionAfterArrival to articulate relative orientation when helpful, including clock directions like "to your right, about 2 o'clock". Prefer these over vague "continue straight" language after exiting a room or door.
 - Avoid stating precise distances in feet (e.g. "15 feet", "34 feet down") — describe distance qualitatively instead, based on approxFeet: short segments as "just down the hall" / "right past" / "a few steps", medium segments as "a little way down the corridor" / "partway down the hall", long segments as "quite a way down" / "toward the far end of the hallway". Only give a rounded, approximate number of feet ("about 50 feet or so") for unusually long stretches with no landmark and no natural qualitative phrase that fits — and even then, treat it as a last resort, not the default.
 - Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
-- Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor," and mention what's near the exit if given.
+- Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor." If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
+- A transition segment's arrivalOrientationUnknown means the app has no idea which physical car the visitor rode or which way they're facing after the doors open — never say "turn left" or "turn right" as the very first instruction after an elevator/stairs arrival (this is also why directionFromPrevious is null for the segment right after one). Use exitOptionsCount instead: if it's 0 or 1, there was only one way to walk from that landing, so say so plainly, e.g. "step out and go the only way you can, then turn right at the end of the hall" (the turn at the *next* junction is fine — that's a normal directionAfterArrival, not tied to facing at the elevator). If exitOptionsCount is more than 1, disambiguate using the arriving segment's toLabel/nearbyLandmarks instead of left/right — e.g. "head toward the doors marked Radiology" — rather than guessing a direction.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
 - Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" and describe the first segment's distance qualitatively, per the distance guideline above.
 - Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided.

@@ -453,6 +453,7 @@ export default function FloorEditor() {
                 selectedDraftPoint={selectedDraftPoint}
                 floors={floors}
                 buildingNodes={buildingNodes}
+                currentFloorId={floorId}
                 onSelectPoint={setSelectedDraftId}
                 onUpdatePoint={handleUpdateDraftPoint}
                 onUndoLast={handleUndoLastPoint}
@@ -563,10 +564,15 @@ export default function FloorEditor() {
                   <li key={e.id} className="list-item">
                     <span>
                       {e.type} ({Math.round(e.weight)}px)
+                      {e.generatedByTransitionGroup && (
+                        <span className="muted"> — managed by the elevator/stairs group, edit via the linked landings</span>
+                      )}
                     </span>
-                    <button type="button" className="danger" onClick={() => handleDeleteEdge(e.id)}>
-                      Delete
-                    </button>
+                    {!e.generatedByTransitionGroup && (
+                      <button type="button" className="danger" onClick={() => handleDeleteEdge(e.id)}>
+                        Delete
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -705,6 +711,7 @@ function ChainPanel({
   selectedDraftPoint,
   floors,
   buildingNodes,
+  currentFloorId,
   onSelectPoint,
   onUpdatePoint,
   onUndoLast,
@@ -747,6 +754,7 @@ function ChainPanel({
           point={selectedDraftPoint}
           floors={floors}
           buildingNodes={buildingNodes}
+          currentFloorId={currentFloorId}
           onUpdate={onUpdatePoint}
         />
       )}
@@ -767,7 +775,7 @@ function ChainPanel({
   );
 }
 
-function DraftPointFields({ point, floors, buildingNodes, onUpdate }) {
+function DraftPointFields({ point, floors, buildingNodes, currentFloorId, onUpdate }) {
   return (
     <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
       <label className="muted" htmlFor="draft-type">Type</label>
@@ -845,6 +853,7 @@ function DraftPointFields({ point, floors, buildingNodes, onUpdate }) {
             floors={floors}
             buildingNodes={buildingNodes}
             excludeNodeId={null}
+            currentFloorId={currentFloorId}
             transitionSubtype={point.transitionSubtype}
             currentGroupId={point.transitionGroupId}
             currentGroupName={point.transitionGroupName}
@@ -868,7 +877,7 @@ function groupDisplayName(group, transitionSubtype) {
   return floors ? `${type} serving ${floors}` : `${type} group`;
 }
 
-function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, transitionSubtype, currentGroupId, currentGroupName, onChange }) {
+function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, currentFloorId, transitionSubtype, currentGroupId, currentGroupName, onChange }) {
   const floorById = new Map(floors.map((floor) => [floor.id, floor]));
   const groupById = new Map();
   for (const node of buildingNodes) {
@@ -884,12 +893,14 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, transition
       groupById.get(node.transitionGroupId).name = node.transitionGroupName;
     }
     groupById.get(node.transitionGroupId).members.push({
+      floorId: node.floorId,
       floorName: floorById.get(node.floorId)?.name || node.floorId,
       label: node.label || '',
     });
   }
   const groups = [...groupById.values()];
   const currentGroup = currentGroupId ? groupById.get(currentGroupId) : null;
+  const sameFloorMemberExists = Boolean(currentGroup?.members.some((member) => member.floorId === currentFloorId));
   const availableLandings = buildingNodes
     .filter((node) => node.nodeType === 'transition' && node.transitionSubtype === transitionSubtype && node.id !== excludeNodeId && node.transitionGroupId)
     .map((node) => {
@@ -990,6 +1001,13 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, transition
               <p className="muted">
                 This landing will be assigned to {groupDisplayName(currentGroup, transitionSubtype)} when saved.
               </p>
+              {sameFloorMemberExists && (
+                <p className="muted">
+                  This group already has a landing on this floor — saving will add a second, alternate landing here
+                  (e.g. the other side of the lobby), connected to it by a normal walk, not a second ride. Give each a
+                  distinct label (e.g. "East elevator landing") so directions can tell visitors which one they're near.
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -1162,6 +1180,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
             floors={floors}
             buildingNodes={buildingNodes}
             excludeNodeId={node.id}
+            currentFloorId={node.floorId}
             transitionSubtype={transitionSubtype}
             currentGroupId={groupChoice}
             currentGroupName={groupName}
