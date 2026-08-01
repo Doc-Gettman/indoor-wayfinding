@@ -13,6 +13,8 @@ const ZOOM_STEP = 1.25;
 const DRAG_THRESHOLD_PX = 3;
 const PAN_PADDING_FACTOR = 0.5;
 const FOCUS_ZOOM = 1;
+const EDGE_FOCUS_MAX_ZOOM = 1.5;
+const EDGE_FOCUS_PADDING_PX = 160;
 
 function clampZoom(z) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
@@ -47,6 +49,7 @@ export default function FloorCanvas({
   poiNodeIds,
   qrNodeIds = new Set(),
   selectedNodeId,
+  selectedEdgeId,
   draftPoints = [],
   draftEdges = [],
   selectedDraftId,
@@ -54,6 +57,8 @@ export default function FloorCanvas({
   selectedLandmarkId,
   calibrationPoints = [],
   focusNodeId,
+  focusEdgeId,
+  focusEdgeNonce,
   mode,
   onCanvasClick,
   onNodeClick,
@@ -147,6 +152,17 @@ export default function FloorCanvas({
     };
   }
 
+  function centerOnEdge(from, to) {
+    if (viewportSize.width === 0 || viewportSize.height === 0) return;
+    const width = Math.abs(to.x - from.x);
+    const height = Math.abs(to.y - from.y);
+    const paddedWidth = width + EDGE_FOCUS_PADDING_PX;
+    const paddedHeight = height + EDGE_FOCUS_PADDING_PX;
+    const fitZoom = Math.min(viewportSize.width / paddedWidth, viewportSize.height / paddedHeight);
+    const targetZoom = clampZoom(Math.min(EDGE_FOCUS_MAX_ZOOM, fitZoom));
+    centerOnPoint((from.x + to.x) / 2, (from.y + to.y) / 2, targetZoom);
+  }
+
   useEffect(() => {
     if (!focusNodeId || !size) return;
     const node = nodes.find((n) => n.id === focusNodeId);
@@ -154,6 +170,17 @@ export default function FloorCanvas({
     centerOnPoint(node.x, node.y, Math.max(zoomRef.current, FOCUS_ZOOM));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusNodeId, size, viewportSize.width, viewportSize.height]);
+
+  useEffect(() => {
+    if (!focusEdgeId || !size) return;
+    const edge = edges.find((e) => e.id === focusEdgeId);
+    if (!edge) return;
+    const from = nodes.find((n) => n.id === edge.from);
+    const to = nodes.find((n) => n.id === edge.to);
+    if (!from || !to) return;
+    centerOnEdge(from, to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusEdgeId, focusEdgeNonce, size, viewportSize.width, viewportSize.height]);
 
   useEffect(() => {
     fittedImageRef.current = null;
@@ -376,8 +403,20 @@ export default function FloorCanvas({
               {edges.map((edge) => {
                 const from = nodeById.get(edge.from);
                 const to = nodeById.get(edge.to);
+                const isSelected = edge.id === selectedEdgeId;
                 if (!from || !to) return null;
-                return <line key={edge.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#4b5563" strokeWidth={edgeStrokeWidth} />;
+                return (
+                  <line
+                    key={edge.id}
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                    stroke={isSelected ? '#f97316' : '#4b5563'}
+                    strokeWidth={isSelected ? screenPx(7, zoom) : edgeStrokeWidth}
+                    strokeLinecap="round"
+                  />
+                );
               })}
 
               {draftEdges.map((edge, i) => (

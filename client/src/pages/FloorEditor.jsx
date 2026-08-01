@@ -29,6 +29,8 @@ export default function FloorEditor() {
 
   const [mode, setMode] = useState('select');
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [edgeFocusNonce, setEdgeFocusNonce] = useState(0);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState(null);
   const [qrOriginNodeId, setQrOriginNodeId] = useState('');
   const [qrLabel, setQrLabel] = useState('');
@@ -60,6 +62,7 @@ export default function FloorEditor() {
     setQrOriginNodeId('');
     setQrLabel('');
     setHighlightedQrId(null);
+    setSelectedEdgeId(null);
   }, [floorId]);
 
   const floor = floors.find((f) => f.id === floorId);
@@ -133,6 +136,7 @@ export default function FloorEditor() {
     setDraftPoints([]);
     setDraftEdges([]);
     setSelectedDraftId(null);
+    setSelectedEdgeId(null);
   }
 
   function handleStartFreshChain() {
@@ -144,6 +148,7 @@ export default function FloorEditor() {
     setDraftEdges([]);
     setSelectedDraftId(null);
     setSelectedLandmarkId(null);
+    setSelectedEdgeId(null);
   }
 
   function handleStartChainFromNode(nodeId) {
@@ -156,6 +161,7 @@ export default function FloorEditor() {
     setSelectedDraftId(null);
     setSelectedNodeId(null);
     setSelectedLandmarkId(null);
+    setSelectedEdgeId(null);
   }
 
   function handleStartLandmarkMode() {
@@ -167,6 +173,7 @@ export default function FloorEditor() {
     setDraftEdges([]);
     setSelectedDraftId(null);
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
   }
 
   function handleStartQrMode() {
@@ -179,6 +186,7 @@ export default function FloorEditor() {
     setSelectedDraftId(null);
     setSelectedNodeId(null);
     setSelectedLandmarkId(null);
+    setSelectedEdgeId(null);
     setHighlightedQrId(null);
   }
 
@@ -192,6 +200,7 @@ export default function FloorEditor() {
     setSelectedDraftId(null);
     setSelectedNodeId(null);
     setSelectedLandmarkId(null);
+    setSelectedEdgeId(null);
     setCalibrationPoints([]);
     setCalibrationFeet('');
   }
@@ -277,6 +286,7 @@ export default function FloorEditor() {
       return;
     }
     setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
     setSelectedDraftId(null);
     setSelectedLandmarkId(null);
   }
@@ -296,6 +306,16 @@ export default function FloorEditor() {
     if (mode !== 'select') return;
     setSelectedLandmarkId(landmarkId);
     setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setSelectedDraftId(null);
+  }
+
+  function handleSelectEdge(edgeId) {
+    setMode('select');
+    setSelectedEdgeId(edgeId);
+    setEdgeFocusNonce((n) => n + 1);
+    setSelectedNodeId(null);
+    setSelectedLandmarkId(null);
     setSelectedDraftId(null);
   }
 
@@ -365,6 +385,7 @@ export default function FloorEditor() {
   async function handleDeleteEdge(edgeId) {
     try {
       await api.deleteEdge(buildingId, edgeId);
+      setSelectedEdgeId((id) => (id === edgeId ? null : id));
       refresh();
     } catch (err) {
       setError(err.message);
@@ -530,6 +551,7 @@ export default function FloorEditor() {
               edges={floorEdges}
               poiNodeIds={poiNodeIds}
               qrNodeIds={qrNodeIds}
+              selectedEdgeId={selectedEdgeId}
               selectedNodeId={
                 mode === 'qr'
                   ? highlightedQrNodeId || qrOriginNodeId
@@ -546,6 +568,8 @@ export default function FloorEditor() {
               selectedLandmarkId={selectedLandmarkId}
               calibrationPoints={calibrationPoints}
               focusNodeId={mode === 'qr' ? highlightedQrNodeId : null}
+              focusEdgeId={selectedEdgeId}
+              focusEdgeNonce={edgeFocusNonce}
               mode={mode === 'qr' ? 'select' : mode}
               onCanvasClick={handleCanvasClick}
               onNodeClick={handleNodeClick}
@@ -561,7 +585,16 @@ export default function FloorEditor() {
             ) : (
               <ul className="list">
                 {floorEdges.map((e) => (
-                  <li key={e.id} className="list-item">
+                  <li
+                    key={e.id}
+                    className="list-item"
+                    onClick={() => handleSelectEdge(e.id)}
+                    style={{
+                      cursor: 'pointer',
+                      background: selectedEdgeId === e.id ? '#fff7ed' : undefined,
+                      borderColor: selectedEdgeId === e.id ? '#fdba74' : undefined,
+                    }}
+                  >
                     <span>
                       {e.type} ({Math.round(e.weight)}px)
                       {e.generatedByTransitionGroup && (
@@ -569,7 +602,14 @@ export default function FloorEditor() {
                       )}
                     </span>
                     {!e.generatedByTransitionGroup && (
-                      <button type="button" className="danger" onClick={() => handleDeleteEdge(e.id)}>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteEdge(e.id);
+                        }}
+                      >
                         Delete
                       </button>
                     )}
