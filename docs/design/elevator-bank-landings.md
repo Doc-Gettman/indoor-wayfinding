@@ -1,6 +1,6 @@
 # Design: elevator banks flanking both sides of a landing
 
-Status: **proposed, not implemented**
+Status: **implemented**
 Reviewed by: Codex (comments incorporated below)
 
 ## Problem
