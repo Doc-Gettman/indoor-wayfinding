@@ -7,16 +7,32 @@ export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPAB
 export async function listBuildings() {
   const { data, error } = await supabase.from('buildings').select('id, name').order('name');
   if (error) throw error;
-  return data ?? [];
+  const buildings = data ?? [];
+  return Promise.all(
+    buildings.map(async (building) => {
+      const metadata = await getBuildingMetadata(building.id);
+      return { ...building, ...metadata };
+    }),
+  );
 }
 
 export async function saveBuildings(buildings) {
   const { error: deleteError } = await supabase.from('buildings').delete().not('id', 'is', null);
   if (deleteError) throw deleteError;
   if (buildings.length) {
-    const { error: insertError } = await supabase.from('buildings').insert(buildings);
+    const rows = buildings.map(({ id, name }) => ({ id, name }));
+    const { error: insertError } = await supabase.from('buildings').insert(rows);
     if (insertError) throw insertError;
   }
+}
+
+export async function getBuildingMetadata(buildingId) {
+  const [metadata] = await getCollection(buildingId, 'metadata');
+  return metadata ?? {};
+}
+
+export async function saveBuildingMetadata(buildingId, metadata) {
+  await saveCollection(buildingId, 'metadata', [metadata]);
 }
 
 export async function getCollection(buildingId, name) {

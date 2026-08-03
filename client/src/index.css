@@ -208,6 +208,16 @@ input, select {
   text-decoration: none;
 }
 
+.building-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.building-group h2 {
+  margin-bottom: 8px;
+}
+
 .wayfind-page {
   max-width: 480px;
 }

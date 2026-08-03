@@ -31,8 +31,9 @@ export const api = {
 
   listBuildings: () => request('/buildings'),
   getBuilding: (buildingId) => request(`/buildings/${buildingId}`),
-  createBuilding: (name) => request('/buildings', { method: 'POST', body: json({ name }) }),
+  createBuilding: (data) => request('/buildings', { method: 'POST', body: json(typeof data === 'string' ? { name: data } : data) }),
   updateBuilding: (buildingId, data) => request(`/buildings/${buildingId}`, { method: 'PUT', body: json(data) }),
+  copyBuilding: (buildingId, data) => request(`/buildings/${buildingId}/copy`, { method: 'POST', body: json(data) }),
   deleteBuilding: (buildingId) => request(`/buildings/${buildingId}`, { method: 'DELETE' }),
 
   listFloors: (buildingId) => request(`/buildings/${buildingId}/floors`),
