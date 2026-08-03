@@ -96,6 +96,9 @@ export default function FloorEditor() {
   );
 
   const selectedNode = buildingNodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedEdge = buildingEdges.find((e) => e.id === selectedEdgeId) || null;
+  const selectedEdgeFrom = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.from) || null : null;
+  const selectedEdgeTo = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.to) || null : null;
   const selectedLandmark = landmarks.find((l) => l.id === selectedLandmarkId) || null;
   const selectedDraftPoint = draftPoints.find((p) => p.tempId === selectedDraftId) || null;
   const qrOriginNode = buildingNodes.find((n) => n.id === qrOriginNodeId) || null;
@@ -392,6 +395,39 @@ export default function FloorEditor() {
     }
   }
 
+  async function handleInsertWaypointOnEdge(edgeId) {
+    const edge = buildingEdges.find((e) => e.id === edgeId);
+    if (!edge || edge.generatedByTransitionGroup) return;
+
+    const from = buildingNodes.find((n) => n.id === edge.from);
+    const to = buildingNodes.find((n) => n.id === edge.to);
+    if (!from || !to) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await api.createNode(buildingId, {
+        floorId: from.floorId,
+        x: Math.round((from.x + to.x) / 2),
+        y: Math.round((from.y + to.y) / 2),
+        label: '',
+        nodeType: 'waypoint',
+      });
+      await api.createEdge(buildingId, { from: from.id, to: created.id, type: edge.type });
+      await api.createEdge(buildingId, { from: created.id, to: to.id, type: edge.type });
+      await api.deleteEdge(buildingId, edge.id);
+      setSelectedEdgeId(null);
+      setSelectedNodeId(created.id);
+      setSelectedLandmarkId(null);
+      setSelectedDraftId(null);
+      refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleCreateQr(e) {
     e.preventDefault();
     setError(null);
@@ -537,8 +573,17 @@ export default function FloorEditor() {
                 }}
                 onStartChain={() => handleStartChainFromNode(selectedNode.id)}
               />
+            ) : selectedEdge ? (
+              <EdgePanel
+                edge={selectedEdge}
+                from={selectedEdgeFrom}
+                to={selectedEdgeTo}
+                saving={saving}
+                onInsertWaypoint={() => handleInsertWaypointOnEdge(selectedEdge.id)}
+                onDelete={() => handleDeleteEdge(selectedEdge.id)}
+              />
             ) : (
-              <div className="card muted">Select a waypoint, destination, or landmark to edit its details.</div>
+              <div className="card muted">Select a waypoint, destination, edge, or landmark to edit its details.</div>
             )}
 
             {error && <div className="error">{error}</div>}
@@ -573,6 +618,7 @@ export default function FloorEditor() {
               mode={mode === 'qr' ? 'select' : mode}
               onCanvasClick={handleCanvasClick}
               onNodeClick={handleNodeClick}
+              onEdgeClick={handleSelectEdge}
               onDraftPointClick={setSelectedDraftId}
               onLandmarkPlace={handleLandmarkPlace}
               onLandmarkClick={handleLandmarkClick}
@@ -618,6 +664,39 @@ export default function FloorEditor() {
               </ul>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EdgePanel({ edge, from, to, saving, onInsertWaypoint, onDelete }) {
+  const canEdit = edge && !edge.generatedByTransitionGroup && (edge.type === 'hallway' || edge.type === 'door') && from && to;
+
+  return (
+    <div className="card">
+      <h2>Edge details</h2>
+      <p className="muted" style={{ marginBottom: 8 }}>
+        {edge.type} connection
+        {edge.weight ? ` - ${Math.round(edge.weight)}px` : ''}
+      </p>
+      {from && to && (
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Between {from.label || from.id} and {to.label || to.id}.
+        </p>
+      )}
+      {edge.generatedByTransitionGroup ? (
+        <p className="muted">
+          This edge is managed by an elevator/stairs group. Edit the linked landings instead.
+        </p>
+      ) : (
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className="primary" onClick={onInsertWaypoint} disabled={!canEdit || saving}>
+            Add waypoint at midpoint
+          </button>
+          <button type="button" className="danger" onClick={onDelete} disabled={saving}>
+            Delete
+          </button>
         </div>
       )}
     </div>

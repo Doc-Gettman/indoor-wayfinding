@@ -62,6 +62,7 @@ export default function FloorCanvas({
   mode,
   onCanvasClick,
   onNodeClick,
+  onEdgeClick,
   onDraftPointClick,
   onLandmarkPlace,
   onLandmarkClick,
@@ -243,6 +244,15 @@ export default function FloorCanvas({
     onNodeClick(id);
   }
 
+  function handleEdgeClick(id) {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (mode !== 'select') return;
+    onEdgeClick(id);
+  }
+
   function handleDraftPointClick(tempId) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -406,16 +416,33 @@ export default function FloorCanvas({
                 const isSelected = edge.id === selectedEdgeId;
                 if (!from || !to) return null;
                 return (
-                  <line
+                  <g
                     key={edge.id}
-                    x1={from.x}
-                    y1={from.y}
-                    x2={to.x}
-                    y2={to.y}
-                    stroke={isSelected ? '#f97316' : '#4b5563'}
-                    strokeWidth={isSelected ? screenPx(7, zoom) : edgeStrokeWidth}
-                    strokeLinecap="round"
-                  />
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdgeClick(edge.id);
+                    }}
+                    style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
+                  >
+                    <line
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke="transparent"
+                      strokeWidth={screenPx(18, zoom)}
+                      strokeLinecap="round"
+                    />
+                    <line
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke={isSelected ? '#f97316' : '#4b5563'}
+                      strokeWidth={isSelected ? screenPx(7, zoom) : edgeStrokeWidth}
+                      strokeLinecap="round"
+                    />
+                  </g>
                 );
               })}
 

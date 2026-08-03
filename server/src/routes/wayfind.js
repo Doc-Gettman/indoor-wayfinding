@@ -7,6 +7,32 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
+function buildRouteMap(pathNodes, floorsById) {
+  const floorSegments = [];
+  let current = null;
+
+  for (const node of pathNodes) {
+    if (!current || current.floorId !== node.floorId) {
+      current = { floorId: node.floorId, points: [] };
+      floorSegments.push(current);
+    }
+    current.points.push({ id: node.id, x: node.x, y: node.y });
+  }
+
+  return floorSegments
+    .map((segment, index) => {
+      const floor = floorsById.get(segment.floorId);
+      return {
+        floorId: segment.floorId,
+        floorName: floor?.name || segment.floorId,
+        imagePath: floor?.imagePath || null,
+        segmentIndex: index,
+        points: segment.points,
+      };
+    })
+    .filter((segment) => segment.imagePath && segment.points.length > 0);
+}
+
 // GET /buildings/:buildingId/wayfind?from=<nodeId>&to=<poiId>
 wayfindRouter.get('/', async (req, res) => {
   const { from, to } = req.query;
@@ -15,7 +41,7 @@ wayfindRouter.get('/', async (req, res) => {
   const buildingId = req.params.buildingId;
 
   const cached = getCachedRoute(buildingId, from, to);
-  if (cached) return res.json(cached);
+  if (cached?.routeMap) return res.json(cached);
 
   const [nodes, edges, pois, floors, landmarks, qrcodes] = await Promise.all([
     getCollection(buildingId, 'nodes'),
@@ -67,6 +93,7 @@ wayfindRouter.get('/', async (req, res) => {
     generatedBy: llmInstructions ? 'llm' : 'rules',
     destination: destinationPoi,
     floorsCrossed: [...new Set(result.nodes.map((n) => n.floorId))],
+    routeMap: buildRouteMap(result.nodes, floorsById),
   };
   setCachedRoute(buildingId, from, to, payload);
   res.json(payload);

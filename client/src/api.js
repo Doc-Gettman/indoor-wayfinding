@@ -32,6 +32,7 @@ export const api = {
   listBuildings: () => request('/buildings'),
   getBuilding: (buildingId) => request(`/buildings/${buildingId}`),
   createBuilding: (name) => request('/buildings', { method: 'POST', body: json({ name }) }),
+  updateBuilding: (buildingId, data) => request(`/buildings/${buildingId}`, { method: 'PUT', body: json(data) }),
   deleteBuilding: (buildingId) => request(`/buildings/${buildingId}`, { method: 'DELETE' }),
 
   listFloors: (buildingId) => request(`/buildings/${buildingId}/floors`),

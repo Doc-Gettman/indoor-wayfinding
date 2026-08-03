@@ -6,23 +6,47 @@ export default function BuildingDetail() {
   const { buildingId } = useParams();
   const [building, setBuilding] = useState(null);
   const [floors, setFloors] = useState(null);
-  const [name, setName] = useState('');
+  const [buildingName, setBuildingName] = useState('');
+  const [floorName, setFloorName] = useState('');
   const [pixelsPerFoot, setPixelsPerFoot] = useState(10);
+  const [savingBuilding, setSavingBuilding] = useState(false);
   const [error, setError] = useState(null);
 
   function refresh() {
-    api.getBuilding(buildingId).then(setBuilding).catch((err) => setError(err.message));
+    api
+      .getBuilding(buildingId)
+      .then((nextBuilding) => {
+        setBuilding(nextBuilding);
+        setBuildingName(nextBuilding.name || '');
+      })
+      .catch((err) => setError(err.message));
     api.listFloors(buildingId).then(setFloors).catch((err) => setError(err.message));
   }
 
   useEffect(refresh, [buildingId]);
 
+  async function handleSaveBuildingName(e) {
+    e.preventDefault();
+    if (!buildingName.trim()) return;
+    setSavingBuilding(true);
+    setError(null);
+    try {
+      const updated = await api.updateBuilding(buildingId, { name: buildingName.trim() });
+      setBuilding(updated);
+      setBuildingName(updated.name || '');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingBuilding(false);
+    }
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     setError(null);
     try {
-      await api.createFloor(buildingId, { name, pixelsPerFoot: Number(pixelsPerFoot) || null });
-      setName('');
+      await api.createFloor(buildingId, { name: floorName, pixelsPerFoot: Number(pixelsPerFoot) || null });
+      setFloorName('');
       refresh();
     } catch (err) {
       setError(err.message);
@@ -46,9 +70,21 @@ export default function BuildingDetail() {
       </div>
       <h1>{building?.name}</h1>
 
+      <form onSubmit={handleSaveBuildingName} className="card row">
+        <input
+          aria-label="Building name"
+          value={buildingName}
+          onChange={(e) => setBuildingName(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="primary" disabled={!buildingName.trim() || savingBuilding || buildingName.trim() === building?.name}>
+          {savingBuilding ? 'Saving...' : 'Save name'}
+        </button>
+      </form>
+
       <h2>Floors</h2>
       <form onSubmit={handleCreate} className="card row">
-        <input placeholder="Floor name (e.g. 1st Floor)" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1 }} />
+        <input placeholder="Floor name (e.g. 1st Floor)" value={floorName} onChange={(e) => setFloorName(e.target.value)} style={{ flex: 1 }} />
         <label className="row" style={{ gap: 4 }}>
           <span className="muted">px/ft</span>
           <input
@@ -59,7 +95,7 @@ export default function BuildingDetail() {
             style={{ width: 70 }}
           />
         </label>
-        <button type="submit" className="primary" disabled={!name.trim()}>
+        <button type="submit" className="primary" disabled={!floorName.trim()}>
           Add floor
         </button>
       </form>

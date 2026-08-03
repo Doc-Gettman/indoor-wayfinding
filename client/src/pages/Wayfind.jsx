@@ -19,6 +19,84 @@ function compareFloors(a, b) {
   return a.floorId.localeCompare(b.floorId);
 }
 
+function getRouteBounds(points, imageSize) {
+  if (!points.length || !imageSize) return null;
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const routeWidth = Math.max(maxX - minX, 1);
+  const routeHeight = Math.max(maxY - minY, 1);
+  const padding = Math.max(80, Math.max(routeWidth, routeHeight) * 0.35);
+
+  const x = Math.max(0, minX - padding);
+  const y = Math.max(0, minY - padding);
+  const right = Math.min(imageSize.width, maxX + padding);
+  const bottom = Math.min(imageSize.height, maxY + padding);
+
+  return {
+    x,
+    y,
+    width: Math.max(right - x, 1),
+    height: Math.max(bottom - y, 1),
+  };
+}
+
+function RouteMap({ routeMap }) {
+  if (!routeMap?.length) return null;
+
+  return (
+    <div className="route-map">
+      <h3>Route map</h3>
+      {routeMap.map((segment) => (
+        <RouteMapSegment key={`${segment.floorId}-${segment.segmentIndex}`} segment={segment} />
+      ))}
+    </div>
+  );
+}
+
+function RouteMapSegment({ segment }) {
+  const [imageSize, setImageSize] = useState(null);
+  const bounds = getRouteBounds(segment.points || [], imageSize);
+  const pathData = segment.points?.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ') || '';
+  const startPoint = segment.points?.[0];
+  const endPoint = segment.points?.[segment.points.length - 1];
+  const imageStyle =
+    bounds && imageSize
+      ? {
+          width: `${(imageSize.width / bounds.width) * 100}%`,
+          height: `${(imageSize.height / bounds.height) * 100}%`,
+          left: `${(-bounds.x / bounds.width) * 100}%`,
+          top: `${(-bounds.y / bounds.height) * 100}%`,
+        }
+      : undefined;
+  const viewportStyle = bounds ? { aspectRatio: `${bounds.width} / ${bounds.height}` } : undefined;
+
+  return (
+    <figure className="route-map__segment">
+      <figcaption>{segment.floorName}</figcaption>
+      <div className="route-map__viewport" style={viewportStyle}>
+        <img
+          src={segment.imagePath}
+          alt={`${segment.floorName} route map`}
+          style={imageStyle}
+          onLoad={(event) => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+        />
+        {bounds && (
+          <svg className="route-map__overlay" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} aria-hidden="true">
+            {pathData && <path d={pathData} />}
+            {startPoint && <circle className="route-map__point route-map__point--start" cx={startPoint.x} cy={startPoint.y} r="10" />}
+            {endPoint && <circle className="route-map__point route-map__point--end" cx={endPoint.x} cy={endPoint.y} r="10" />}
+          </svg>
+        )}
+      </div>
+    </figure>
+  );
+}
+
 export default function Wayfind() {
   const { buildingId } = useParams();
   const [searchParams] = useSearchParams();
@@ -71,6 +149,8 @@ export default function Wayfind() {
   }, [nodes, originNodeId]);
 
   const originLabel = originQrCode?.label || originNode?.label || 'your current location';
+  const originFloor = floors?.find((floor) => floor.id === originNode?.floorId) || null;
+  const originFloorLabel = originFloor?.name ? originFloor.name.toUpperCase() : null;
   const destinationGroups = useMemo(() => {
     if (!pois || !floors || !nodes) return [];
 
@@ -157,14 +237,30 @@ export default function Wayfind() {
   if (showQrSplash) {
     return (
       <div className="qr-splash" role="status" aria-live="polite" aria-label="QR code captured">
-        <div className="qr-splash__mark" aria-hidden="true">
-          <span className="qr-splash__qr" />
-          <span className="qr-splash__key" />
-        </div>
-        <p className="qr-splash__eyebrow">GoldenKey</p>
+        <svg className="qr-splash__pin" viewBox="0 0 96 120" aria-hidden="true">
+          <path d="M26,116 A22,5 0 1,0 70,116 A22,5 0 1,0 26,116 Z" fill="rgba(0,0,0,0.25)" />
+          <path
+            d="M48,0C21.5,0 0,21.5 0,48C0,80 48,120 48,120C48,120 96,80 96,48C96,21.5 74.5,0 48,0Z"
+            fill="var(--gk-gold)"
+          />
+          <path
+            d="M19,26 A14,9 0 1,0 47,26 A14,9 0 1,0 19,26 Z"
+            fill="rgba(255,255,255,0.18)"
+            transform="rotate(-25 33 26)"
+          />
+          <path d="M34,42 A14,14 0 1,0 62,42 A14,14 0 1,0 34,42 Z" fill="var(--gk-navy)" />
+          <path
+            d="M45,53 L51,53 Q54,53 54,56 L54,70 Q54,73 51,73 L45,73 Q42,73 42,70 L42,56 Q42,53 45,53 Z"
+            fill="var(--gk-navy)"
+          />
+        </svg>
+        <p className="qr-splash__wordmark">goldenkey</p>
         <h1>QR code captured</h1>
-        <p className="qr-splash__message">Preparing destinations from {originLabel}.</p>
-        <div className="qr-splash__route" aria-hidden="true">
+        <p className="qr-splash__message">
+          Preparing destinations from {originLabel}
+          {originFloorLabel ? ` — ${originFloorLabel}` : ''}.
+        </p>
+        <div className="qr-splash__dots" aria-hidden="true">
           <span />
           <span />
           <span />
@@ -178,6 +274,7 @@ export default function Wayfind() {
       <h1>{building?.name || 'Loading...'}</h1>
       <p className="muted">
         You are at: <strong>{originLabel}</strong>
+        {originFloorLabel && <span className="wayfind-floor-badge">{originFloorLabel}</span>}
       </p>
 
       {selectedPoiId && (directionsLoading || directions || directionsError) ? (
@@ -196,6 +293,7 @@ export default function Wayfind() {
             <>
               <h2>Directions to {directions.destination.name}</h2>
               {directions.destination.description && <p className="muted">{directions.destination.description}</p>}
+              <RouteMap routeMap={directions.routeMap} />
               <ol className="wayfind-steps">
                 {directions.instructions.map((step, i) => (
                   <li key={i}>{step}</li>
