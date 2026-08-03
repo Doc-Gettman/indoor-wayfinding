@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { invalidateRouteCache } from './lib/routeCache.js';
 
 export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -34,6 +35,7 @@ export async function saveCollection(buildingId, name, data) {
     .from('building_collections')
     .upsert({ building_id: buildingId, name, data, updated_at: new Date().toISOString() });
   if (error) throw error;
+  invalidateRouteCache(buildingId);
 }
 
 export function nextId(prefix) {

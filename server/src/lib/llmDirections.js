@@ -181,7 +181,7 @@ export async function generateLLMDirections(input) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 2000,
-      thinking: { type: 'adaptive' },
+      thinking: { type: 'disabled' },
       system: SYSTEM_PROMPT,
       output_config: {
         format: {

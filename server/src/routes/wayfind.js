@@ -3,6 +3,7 @@ import { getCollection } from '../db.js';
 import { findShortestPath } from '../lib/dijkstra.js';
 import { generateDirections } from '../lib/directions.js';
 import { generateLLMDirections } from '../lib/llmDirections.js';
+import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
@@ -12,6 +13,10 @@ wayfindRouter.get('/', async (req, res) => {
   if (!from || !to) return res.status(400).json({ error: 'from (node id) and to (poi id) query params are required' });
 
   const buildingId = req.params.buildingId;
+
+  const cached = getCachedRoute(buildingId, from, to);
+  if (cached) return res.json(cached);
+
   const [nodes, edges, pois, floors, landmarks, qrcodes] = await Promise.all([
     getCollection(buildingId, 'nodes'),
     getCollection(buildingId, 'edges'),
@@ -57,10 +62,12 @@ wayfindRouter.get('/', async (req, res) => {
       landmarks,
     });
 
-  res.json({
+  const payload = {
     instructions,
     generatedBy: llmInstructions ? 'llm' : 'rules',
     destination: destinationPoi,
     floorsCrossed: [...new Set(result.nodes.map((n) => n.floorId))],
-  });
+  };
+  setCachedRoute(buildingId, from, to, payload);
+  res.json(payload);
 });
