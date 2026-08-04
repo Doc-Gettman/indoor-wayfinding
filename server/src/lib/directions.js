@@ -42,6 +42,15 @@ function doorText(node) {
   return node.doorDescription || node.label || 'the door';
 }
 
+function mapExitDirection(from, to) {
+  if (!from || !to) return null;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
+  if (Math.abs(dx) >= Math.abs(dy) * 0.75) return dx < 0 ? 'left' : 'right';
+  return dy < 0 ? 'up' : 'down';
+}
+
 function nearbyLandmarksForSegment(from, to, landmarks, pixelsPerFoot) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -100,7 +109,7 @@ function poiAnnotationsForSegment(from, to, pois, pathNodeIds) {
   return annotations;
 }
 
-export function generateDirections({ pathNodes, pathEdges, allEdges, pois, floorsById, landmarks = [] }) {
+export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, pois, floorsById, landmarks = [] }) {
   const pathNodeIds = new Set(pathNodes.map((n) => n.id));
   const poiByNodeId = new Map(pois.map((p) => [p.nodeId, p]));
   const poisWithNodes = pois
@@ -123,6 +132,13 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, pois, floor
       // visitor rode or which way they're facing.
       if (segment.exitContext.exitOptionsCount <= 1) {
         text = dist ? `Head the only way you can, ${dist}` : 'Head the only way you can from here';
+      } else if (
+        !segment.exitContext.exitOrientationAmbiguous &&
+        (segment.exitContext.routeExitDirection === 'left' || segment.exitContext.routeExitDirection === 'right')
+      ) {
+        text = dist
+          ? `Turn ${segment.exitContext.routeExitDirection}, then continue for ${dist}`
+          : `Turn ${segment.exitContext.routeExitDirection}`;
       } else {
         text = dist ? `Continue from the landing for ${dist}` : 'Continue from the landing';
       }
@@ -157,7 +173,19 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, pois, floor
       const exitOptionsCount = (allEdges || []).filter(
         (e) => e.id !== edge.id && (e.from === to.id || e.to === to.id)
       ).length;
-      pendingExitContext = { exitOptionsCount };
+      const sameFloorGroupLandings = allNodes.filter(
+        (node) =>
+          node.id !== to.id &&
+          node.floorId === to.floorId &&
+          node.nodeType === 'transition' &&
+          node.transitionGroupId &&
+          node.transitionGroupId === to.transitionGroupId
+      );
+      pendingExitContext = {
+        exitOptionsCount,
+        exitOrientationAmbiguous: sameFloorGroupLandings.length > 0,
+        routeExitDirection: mapExitDirection(to, pathNodes[i + 2]),
+      };
       continue;
     }
 

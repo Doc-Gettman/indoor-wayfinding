@@ -35,6 +35,15 @@ function relativeDirection(fromHeading, toHeading) {
   };
 }
 
+function mapExitDirection(from, to) {
+  if (!from || !to) return null;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
+  if (Math.abs(dx) >= Math.abs(dy) * 0.75) return dx < 0 ? 'left' : 'right';
+  return dy < 0 ? 'up' : 'down';
+}
+
 // Finds landmarks that sit near a path segment, and which side of the
 // walker's direction of travel they fall on. Mirrors the POI-annotation
 // geometry in lib/directions.js but returns structured data (for the LLM
@@ -73,7 +82,7 @@ function nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot) 
   return found.sort((a, b) => a.approxFeetAwayFromPath - b.approxFeetAwayFromPath).slice(0, 4);
 }
 
-function buildPathDescription({ pathNodes, pathEdges, allEdges, floorsById, landmarks, destination, origin }) {
+function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, floorsById, landmarks, destination, origin }) {
   const segments = [];
   let previousHeading = null;
 
@@ -93,6 +102,14 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, floorsById, land
       const exitOptionsCount = (allEdges || []).filter(
         (e) => e.id !== edge.id && (e.from === to.id || e.to === to.id)
       ).length;
+      const sameFloorGroupLandings = allNodes.filter(
+        (node) =>
+          node.id !== to.id &&
+          node.floorId === to.floorId &&
+          node.nodeType === 'transition' &&
+          node.transitionGroupId &&
+          node.transitionGroupId === to.transitionGroupId
+      );
       segments.push({
         type: 'transition',
         vehicle: edge.type,
@@ -102,6 +119,9 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, floorsById, land
         exitLabel: to.label || null,
         arrivalOrientationUnknown: true,
         exitOptionsCount,
+        exitOrientationAmbiguous: sameFloorGroupLandings.length > 0,
+        routeExitDirection: mapExitDirection(to, nextNode),
+        routeExitLabel: nextNode?.label || null,
       });
       previousHeading = null;
       continue;
@@ -161,7 +181,7 @@ Guidelines:
 - Avoid stating precise distances in feet (e.g. "15 feet", "34 feet down") — describe distance qualitatively instead, based on approxFeet: short segments as "just down the hall" / "right past" / "a few steps", medium segments as "a little way down the corridor" / "partway down the hall", long segments as "quite a way down" / "toward the far end of the hallway". Only give a rounded, approximate number of feet ("about 50 feet or so") for unusually long stretches with no landmark and no natural qualitative phrase that fits — and even then, treat it as a last resort, not the default.
 - Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
 - Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor." If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
-- A transition segment's arrivalOrientationUnknown means the app has no idea which physical car the visitor rode or which way they're facing after the doors open — never say "turn left" or "turn right" as the very first instruction after an elevator/stairs arrival (this is also why directionFromPrevious is null for the segment right after one). Use exitOptionsCount instead: if it's 0 or 1, there was only one way to walk from that landing, so say so plainly, e.g. "step out and go the only way you can, then turn right at the end of the hall" (the turn at the *next* junction is fine — that's a normal directionAfterArrival, not tied to facing at the elevator). If exitOptionsCount is more than 1, disambiguate using the arriving segment's toLabel/nearbyLandmarks instead of left/right — e.g. "head toward the doors marked Radiology" — rather than guessing a direction.
+- A transition segment's arrivalOrientationUnknown only makes left/right ambiguous when exitOrientationAmbiguous is true, which means the same elevator/stair group has landings on both sides of that floor's hall. If exitOrientationAmbiguous is false and routeExitDirection is "left" or "right", say "turn left" or "turn right" instead of vague wording like "head toward the hallway leading to [destination]". If exitOrientationAmbiguous is true, avoid left/right for the first movement after arrival and disambiguate using exitLabel, routeExitLabel, or nearby landmarks. If exitOptionsCount is 0 or 1, say there is only one way to go.
 - For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("head down the hallway") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
 - Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" and describe the first segment's distance qualitatively, per the distance guideline above.

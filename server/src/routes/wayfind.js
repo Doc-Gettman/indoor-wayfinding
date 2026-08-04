@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 4;
+const ROUTING_VERSION = 5;
 
 function buildRouteMap(pathNodes, floorsById) {
   const floorSegments = [];
@@ -68,6 +68,7 @@ wayfindRouter.get('/', async (req, res) => {
     pathNodes: result.nodes,
     pathEdges: result.edges,
     allEdges: edges,
+    allNodes: nodes,
     floorsById,
     landmarks,
     destination: destinationPoi,
@@ -85,6 +86,7 @@ wayfindRouter.get('/', async (req, res) => {
       pathNodes: result.nodes,
       pathEdges: result.edges,
       allEdges: edges,
+      allNodes: nodes,
       pois,
       floorsById,
       landmarks,
