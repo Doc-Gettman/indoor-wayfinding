@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import FloorCanvas from '../components/FloorCanvas.jsx';
@@ -31,6 +31,7 @@ export default function FloorEditor() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [edgeFocusNonce, setEdgeFocusNonce] = useState(0);
+  const selectedEdgeRowRef = useRef(null);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState(null);
   const [qrOriginNodeId, setQrOriginNodeId] = useState('');
   const [qrLabel, setQrLabel] = useState('');
@@ -99,6 +100,7 @@ export default function FloorEditor() {
   const selectedEdge = buildingEdges.find((e) => e.id === selectedEdgeId) || null;
   const selectedEdgeFrom = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.from) || null : null;
   const selectedEdgeTo = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.to) || null : null;
+  const selectedFloorEdgeIndex = floorEdges.findIndex((edge) => edge.id === selectedEdgeId);
   const selectedLandmark = landmarks.find((l) => l.id === selectedLandmarkId) || null;
   const selectedDraftPoint = draftPoints.find((p) => p.tempId === selectedDraftId) || null;
   const qrOriginNode = buildingNodes.find((n) => n.id === qrOriginNodeId) || null;
@@ -324,6 +326,15 @@ export default function FloorEditor() {
     setSelectedDraftId(null);
   }
 
+  function handleSelectEdgeByIndex(index) {
+    const edge = floorEdges[index];
+    if (edge) handleSelectEdge(edge.id);
+  }
+
+  useEffect(() => {
+    selectedEdgeRowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedEdgeId]);
+
   function handleUndoLastPoint() {
     if (draftPoints.length === 0) return;
     const removed = draftPoints[draftPoints.length - 1];
@@ -474,8 +485,8 @@ export default function FloorEditor() {
           </div>
         </>
       ) : (
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          <div style={{ width: 360, flexShrink: 0 }}>
+        <div className="floor-editor-layout">
+          <div className="floor-editor-sidebar floor-editor-sidebar--left">
             <div className="breadcrumbs">
               <Link to="/admin/buildings">Buildings</Link> / <Link to={`/admin/buildings/${buildingId}`}>{building.name}</Link> /{' '}
               {floor?.name || '...'}
@@ -593,7 +604,7 @@ export default function FloorEditor() {
             {error && <div className="error">{error}</div>}
           </div>
 
-          <div className="map-panel" style={{ width: '66vw', minWidth: 0 }}>
+          <div className="map-panel floor-editor-map">
             <FloorCanvas
               imageUrl={floor.imagePath}
               nodes={floorCanvasNodes}
@@ -668,9 +679,84 @@ export default function FloorEditor() {
               </ul>
             )}
           </div>
+
+          <EdgeListPanel
+            edges={floorEdges}
+            selectedEdgeId={selectedEdgeId}
+            selectedEdgeIndex={selectedFloorEdgeIndex}
+            selectedEdgeRowRef={selectedEdgeRowRef}
+            onSelectEdge={handleSelectEdge}
+            onSelectEdgeByIndex={handleSelectEdgeByIndex}
+            onDeleteEdge={handleDeleteEdge}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+function EdgeListPanel({ edges, selectedEdgeId, selectedEdgeIndex, selectedEdgeRowRef, onSelectEdge, onSelectEdgeByIndex, onDeleteEdge }) {
+  const sliderValue = selectedEdgeIndex >= 0 ? selectedEdgeIndex : 0;
+
+  return (
+    <aside className="floor-editor-sidebar floor-editor-sidebar--right">
+      <div className="card edge-list-panel">
+        <h2>Edges on this floor</h2>
+        {edges.length === 0 ? (
+          <p className="muted">None yet.</p>
+        ) : (
+          <>
+            <label className="muted" htmlFor="edge-selector">Selected edge</label>
+            <input
+              id="edge-selector"
+              className="edge-slider"
+              type="range"
+              min="0"
+              max={edges.length - 1}
+              step="1"
+              value={sliderValue}
+              onChange={(event) => onSelectEdgeByIndex(Number(event.target.value))}
+            />
+            <p className="muted" style={{ marginTop: 0 }}>
+              {selectedEdgeIndex >= 0 ? `${selectedEdgeIndex + 1} of ${edges.length}` : `Select one of ${edges.length} edges`}
+            </p>
+            <ul className="list edge-list">
+              {edges.map((edge, index) => {
+                const selected = edge.id === selectedEdgeId;
+                return (
+                  <li
+                    key={edge.id}
+                    ref={selected ? selectedEdgeRowRef : null}
+                    className={`list-item edge-list__item${selected ? ' edge-list__item--selected' : ''}`}
+                    onClick={() => onSelectEdge(edge.id)}
+                  >
+                    <span>
+                      <strong>#{index + 1}</strong> {edge.type} ({Math.round(edge.weight)}px)
+                      {edge.requiresBadgeAccess && <span className="muted"> - badge access</span>}
+                      {edge.generatedByTransitionGroup && (
+                        <span className="muted"> - managed by the elevator/stairs group</span>
+                      )}
+                    </span>
+                    {!edge.generatedByTransitionGroup && (
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDeleteEdge(edge.id);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </div>
+    </aside>
   );
 }
 

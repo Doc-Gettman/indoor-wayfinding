@@ -38,6 +38,25 @@ function floorLabel(floor) {
   return floor?.name || floor?.id || 'the destination floor';
 }
 
+function floorSortValue(floor, fallbackId) {
+  const raw = String(floor?.sortOrder ?? floor?.level ?? floor?.name ?? fallbackId ?? '');
+  const lower = raw.toLowerCase();
+  const match = lower.match(/-?\d+(\.\d+)?/);
+  if (match) {
+    const value = Number(match[0]);
+    return lower.includes('basement') || lower.startsWith('b') ? -Math.abs(value) : value;
+  }
+  if (lower.includes('ground') || lower.includes('lobby')) return 0;
+  return null;
+}
+
+function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
+  const fromValue = floorSortValue(fromFloor, fromFloorId);
+  const toValue = floorSortValue(toFloor, toFloorId);
+  if (fromValue === null || toValue === null || fromValue === toValue) return null;
+  return toValue > fromValue ? 'up' : 'down';
+}
+
 function doorText(node) {
   return node.doorDescription || node.label || 'the door';
 }
@@ -133,12 +152,11 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       if (segment.exitContext.exitOptionsCount <= 1) {
         text = dist ? `Head the only way you can, ${dist}` : 'Head the only way you can from here';
       } else if (
-        !segment.exitContext.exitOrientationAmbiguous &&
-        (segment.exitContext.routeExitDirection === 'left' || segment.exitContext.routeExitDirection === 'right')
+        segment.exitContext.requiredExitInstruction
       ) {
         text = dist
-          ? `Turn ${segment.exitContext.routeExitDirection}, then continue for ${dist}`
-          : `Turn ${segment.exitContext.routeExitDirection}`;
+          ? `${segment.exitContext.requiredExitInstruction}, then continue for ${dist}`
+          : segment.exitContext.requiredExitInstruction;
       } else {
         text = dist ? `Continue from the landing for ${dist}` : 'Continue from the landing';
       }
@@ -165,9 +183,13 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       flushSegment();
       prevHeading = null;
       const destFloor = floorsById.get(to.floorId);
+      const originFloor = floorsById.get(from.floorId);
       const vehicle = edge.type === 'elevator' ? 'elevator' : 'stairs';
       const groupName = to.transitionGroupName || from.transitionGroupName || null;
-      instructions.push(`Take ${groupName ? `one of the ${groupName}` : `the ${vehicle}`} to ${floorLabel(destFloor)}`);
+      const travelDirection = floorTravelDirection(originFloor, destFloor, from.floorId, to.floorId);
+      instructions.push(
+        `Take ${groupName ? `one of the ${groupName}` : `the ${vehicle}`} ${travelDirection ? `${travelDirection} ` : ''}to ${floorLabel(destFloor)}`
+      );
       const exitPoi = poiByNodeId.get(to.id);
       instructions.push(`Exit the ${vehicle}${exitPoi ? ` near ${exitPoi.name}` : ''}`);
       const exitOptionsCount = (allEdges || []).filter(
@@ -181,10 +203,16 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
           node.transitionGroupId &&
           node.transitionGroupId === to.transitionGroupId
       );
+      const exitOrientationAmbiguous = sameFloorGroupLandings.length > 0;
+      const routeExitDirection = mapExitDirection(to, pathNodes[i + 2]);
       pendingExitContext = {
         exitOptionsCount,
-        exitOrientationAmbiguous: sameFloorGroupLandings.length > 0,
-        routeExitDirection: mapExitDirection(to, pathNodes[i + 2]),
+        exitOrientationAmbiguous,
+        routeExitDirection,
+        requiredExitInstruction:
+          !exitOrientationAmbiguous && (routeExitDirection === 'left' || routeExitDirection === 'right')
+            ? `Turn ${routeExitDirection}`
+            : null,
       };
       continue;
     }

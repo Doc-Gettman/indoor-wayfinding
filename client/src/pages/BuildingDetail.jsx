@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 
 export default function BuildingDetail() {
   const { buildingId } = useParams();
+  const navigate = useNavigate();
   const [building, setBuilding] = useState(null);
   const [floors, setFloors] = useState(null);
   const [groups, setGroups] = useState([]);
@@ -166,6 +167,9 @@ export default function BuildingDetail() {
                     handleRenameFloor(f.id, nameValue);
                   }}
                 >
+                  <button type="button" onClick={() => navigate(`/admin/buildings/${buildingId}/floors/${f.id}`)}>
+                    Open floorplan{!f.imagePath && <span className="muted"> (none uploaded)</span>}
+                  </button>
                   <input
                     aria-label={`Name for ${f.name}`}
                     value={nameValue}
@@ -175,9 +179,6 @@ export default function BuildingDetail() {
                   <button type="submit" disabled={!dirty || savingFloorId === f.id}>
                     {savingFloorId === f.id ? 'Saving...' : 'Save'}
                   </button>
-                  <Link to={`/admin/buildings/${buildingId}/floors/${f.id}`}>
-                    Open floorplan {!f.imagePath && <span className="muted">(none uploaded)</span>} &rsaquo;
-                  </Link>
                 </form>
                 <button type="button" className="danger" onClick={() => handleDelete(f.id)}>
                   Delete

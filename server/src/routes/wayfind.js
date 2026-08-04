@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 5;
+const ROUTING_VERSION = 7;
 
 function buildRouteMap(pathNodes, floorsById) {
   const floorSegments = [];
