@@ -21,6 +21,7 @@ nodesRouter.post('/', requireAdmin, async (req, res) => {
     transitionGroupName,
     transitionRequiresBadgeAccess,
     doorDescription,
+    doorRequiresBadgeAccess,
   } = req.body || {};
   if (!floorId || x === undefined || y === undefined) {
     return res.status(400).json({ error: 'floorId, x, and y are required' });
@@ -38,6 +39,7 @@ nodesRouter.post('/', requireAdmin, async (req, res) => {
     transitionGroupName: nodeType === 'transition' ? transitionGroupName || '' : null,
     transitionRequiresBadgeAccess: nodeType === 'transition' ? Boolean(transitionRequiresBadgeAccess) : false,
     doorDescription: nodeType === 'door' ? doorDescription || '' : null,
+    doorRequiresBadgeAccess: nodeType === 'door' ? Boolean(doorRequiresBadgeAccess) : false,
   };
   nodes.push(node);
   await saveCollection(req.params.buildingId, 'nodes', nodes);

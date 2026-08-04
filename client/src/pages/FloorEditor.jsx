@@ -263,6 +263,7 @@ export default function FloorEditor() {
       transitionGroupName: '',
       transitionRequiresBadgeAccess: false,
       doorDescription: '',
+      doorRequiresBadgeAccess: false,
       poiName: '',
       poiDescription: '',
     };
@@ -357,6 +358,7 @@ export default function FloorEditor() {
           transitionGroupName: point.nodeType === 'transition' ? point.transitionGroupName || point.label || '' : null,
           transitionRequiresBadgeAccess: point.nodeType === 'transition' ? point.transitionRequiresBadgeAccess : false,
           doorDescription: point.nodeType === 'door' ? point.doorDescription : null,
+          doorRequiresBadgeAccess: point.nodeType === 'door' ? point.doorRequiresBadgeAccess : false,
         });
         idMap.set(point.tempId, created.id);
         if (point.nodeType === 'destination') {
@@ -954,6 +956,17 @@ function DraftPointFields({ point, floors, buildingNodes, currentFloorId, onUpda
             placeholder="e.g. glass double doors"
             style={{ width: '100%', marginBottom: 8 }}
           />
+          <label className="row" style={{ gap: 6, marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(point.doorRequiresBadgeAccess)}
+              onChange={(e) => onUpdate(point.tempId, { doorRequiresBadgeAccess: e.target.checked })}
+            />
+            <span>Requires badge access</span>
+          </label>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Routes avoid badge-required doors when a reasonable no-badge option exists.
+          </p>
         </>
       )}
 
@@ -1174,6 +1187,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
   const [groupName, setGroupName] = useState(node.transitionGroupName || '');
   const [transitionRequiresBadgeAccess, setTransitionRequiresBadgeAccess] = useState(Boolean(node.transitionRequiresBadgeAccess));
   const [doorDescription, setDoorDescription] = useState(node.doorDescription || '');
+  const [doorRequiresBadgeAccess, setDoorRequiresBadgeAccess] = useState(Boolean(node.doorRequiresBadgeAccess));
   const [error, setError] = useState(null);
 
   const [poiName, setPoiName] = useState(poi?.name || '');
@@ -1194,6 +1208,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
         label: nodeType === 'destination' ? poiName : label,
         nodeType,
         doorDescription: nodeType === 'door' ? doorDescription : null,
+        doorRequiresBadgeAccess: nodeType === 'door' ? doorRequiresBadgeAccess : false,
       };
       if (nodeType === 'transition') {
         patch.transitionSubtype = transitionSubtype;
@@ -1295,6 +1310,17 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
             placeholder="e.g. glass double doors"
             style={{ width: '100%', marginBottom: 8 }}
           />
+          <label className="row" style={{ gap: 6, marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={doorRequiresBadgeAccess}
+              onChange={(e) => setDoorRequiresBadgeAccess(e.target.checked)}
+            />
+            <span>Requires badge access</span>
+          </label>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+            Routes avoid badge-required doors when a reasonable no-badge option exists.
+          </p>
         </>
       )}
 

@@ -10,7 +10,13 @@ function isFloorChangeEdge(edge, nodeById) {
 function isBadgeAccessEdge(edge, nodeById) {
   const from = nodeById.get(edge.from);
   const to = nodeById.get(edge.to);
-  return Boolean(edge.requiresBadgeAccess || from?.transitionRequiresBadgeAccess || to?.transitionRequiresBadgeAccess);
+  return Boolean(
+    edge.requiresBadgeAccess ||
+      from?.transitionRequiresBadgeAccess ||
+      to?.transitionRequiresBadgeAccess ||
+      from?.doorRequiresBadgeAccess ||
+      to?.doorRequiresBadgeAccess
+  );
 }
 
 function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges }) {
