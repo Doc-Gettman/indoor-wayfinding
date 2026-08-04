@@ -18,7 +18,7 @@ function Topbar() {
   const { isAdmin, logout } = useAuth();
   return (
     <header className="topbar">
-      <strong>Indoor Wayfinding Admin</strong>
+      <strong>GoldenKey Indoor Wayfinding System</strong>
       <nav>
         <NavLink to="/admin/buildings" className={({ isActive }) => (isActive ? 'active' : '')}>
           Buildings

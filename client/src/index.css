@@ -119,6 +119,10 @@ input, select {
   border-bottom: 1px solid var(--border);
 }
 
+.topbar strong {
+  font-size: 30px;
+}
+
 .topbar nav {
   display: flex;
   gap: 14px;
