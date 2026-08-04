@@ -36,6 +36,11 @@ export const api = {
   copyBuilding: (buildingId, data) => request(`/buildings/${buildingId}/copy`, { method: 'POST', body: json(data) }),
   deleteBuilding: (buildingId) => request(`/buildings/${buildingId}`, { method: 'DELETE' }),
 
+  listGroups: () => request('/groups'),
+  createGroup: (name) => request('/groups', { method: 'POST', body: json({ name }) }),
+  updateGroup: (groupId, name) => request(`/groups/${groupId}`, { method: 'PUT', body: json({ name }) }),
+  deleteGroup: (groupId) => request(`/groups/${groupId}`, { method: 'DELETE' }),
+
   listFloors: (buildingId) => request(`/buildings/${buildingId}/floors`),
   createFloor: (buildingId, data) => request(`/buildings/${buildingId}/floors`, { method: 'POST', body: json(data) }),
   updateFloor: (buildingId, floorId, data) =>

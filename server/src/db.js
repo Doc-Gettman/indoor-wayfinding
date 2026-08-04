@@ -4,14 +4,30 @@ import { invalidateRouteCache } from './lib/routeCache.js';
 
 export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Building groups aren't tied to any one building, so they're stored under
+// this sentinel scope in the same building_collections table rather than a
+// dedicated table (no schema migration required).
+const SYSTEM_SCOPE = '__system__';
+
+export async function listGroups() {
+  return getCollection(SYSTEM_SCOPE, 'groups');
+}
+
+export async function saveGroups(groups) {
+  await saveCollection(SYSTEM_SCOPE, 'groups', groups);
+}
+
 export async function listBuildings() {
   const { data, error } = await supabase.from('buildings').select('id, name').order('name');
   if (error) throw error;
   const buildings = data ?? [];
+  const groups = await listGroups();
+  const groupsById = new Map(groups.map((g) => [g.id, g]));
   return Promise.all(
     buildings.map(async (building) => {
       const metadata = await getBuildingMetadata(building.id);
-      return { ...building, ...metadata };
+      const groupId = metadata.groupId || null;
+      return { ...building, groupId, groupName: (groupId && groupsById.get(groupId)?.name) || null };
     }),
   );
 }

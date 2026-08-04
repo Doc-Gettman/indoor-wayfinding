@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx';
 import BuildingsList from './pages/BuildingsList.jsx';
 import BuildingDetail from './pages/BuildingDetail.jsx';
 import FloorEditor from './pages/FloorEditor.jsx';
+import Groups from './pages/Groups.jsx';
 import Wayfind from './pages/Wayfind.jsx';
 
 function RequireAdmin({ children }) {
@@ -21,6 +22,9 @@ function Topbar() {
       <nav>
         <NavLink to="/admin/buildings" className={({ isActive }) => (isActive ? 'active' : '')}>
           Buildings
+        </NavLink>
+        <NavLink to="/admin/groups" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Groups
         </NavLink>
       </nav>
       {isAdmin && <button onClick={logout}>Log out</button>}
@@ -44,6 +48,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <BuildingsList />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/groups"
+          element={
+            <RequireAdmin>
+              <Groups />
             </RequireAdmin>
           }
         />

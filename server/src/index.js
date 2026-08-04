@@ -4,6 +4,7 @@ import cors from 'cors';
 import { Router } from 'express';
 import { authRouter } from './routes/auth.js';
 import { buildingsRouter } from './routes/buildings.js';
+import { groupsRouter } from './routes/groups.js';
 import { floorsRouter } from './routes/floors.js';
 import { nodesRouter } from './routes/nodes.js';
 import { edgesRouter } from './routes/edges.js';
@@ -22,6 +23,7 @@ const api = Router();
 api.get('/health', (req, res) => res.json({ ok: true }));
 api.use('/auth', authRouter);
 api.use('/buildings', buildingsRouter);
+api.use('/groups', groupsRouter);
 
 const buildingSubresources = Router({ mergeParams: true });
 buildingSubresources.use('/floors', floorsRouter);

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getCollection, listBuildings, nextId, saveBuildingMetadata, saveBuildings, saveCollection } from '../db.js';
+import { getCollection, listBuildings, listGroups, nextId, saveBuildingMetadata, saveBuildings, saveCollection } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 
 export const buildingsRouter = Router();
@@ -7,8 +7,19 @@ export const buildingsRouter = Router();
 const COPY_COLLECTIONS = ['floors', 'nodes', 'edges', 'pois', 'landmarks', 'qrcodes'];
 const BASE_URL = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
 
-function cleanClientName(value) {
-  return String(value || '').trim();
+function cleanGroupId(value) {
+  const trimmed = String(value || '').trim();
+  return trimmed || null;
+}
+
+// groupId is chosen from a dropdown of existing groups client-side, but
+// verify server-side too rather than trusting an arbitrary id was posted.
+async function resolveGroupId(value) {
+  const groupId = cleanGroupId(value);
+  if (!groupId) return { groupId: null };
+  const groups = await listGroups();
+  if (!groups.some((g) => g.id === groupId)) return { error: 'Unknown group' };
+  return { groupId };
 }
 
 function wayfindUrl(buildingId, originNodeId) {
@@ -88,20 +99,24 @@ buildingsRouter.get('/:buildingId', async (req, res) => {
 });
 
 buildingsRouter.post('/', requireAdmin, async (req, res) => {
-  const { name, clientName } = req.body || {};
+  const { name, groupId } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name is required' });
+  const resolved = await resolveGroupId(groupId);
+  if (resolved.error) return res.status(400).json({ error: resolved.error });
   const buildings = await listBuildings();
   const building = { id: nextId('bldg'), name: String(name).trim() };
   if (!building.name) return res.status(400).json({ error: 'name is required' });
   buildings.push(building);
   await saveBuildings(buildings);
-  const metadata = { clientName: cleanClientName(clientName) };
+  const metadata = { groupId: resolved.groupId };
   await saveBuildingMetadata(building.id, metadata);
-  res.status(201).json({ ...building, ...metadata });
+  const groups = await listGroups();
+  const groupName = resolved.groupId ? groups.find((g) => g.id === resolved.groupId)?.name || null : null;
+  res.status(201).json({ ...building, ...metadata, groupName });
 });
 
 buildingsRouter.put('/:buildingId', requireAdmin, async (req, res) => {
-  const { name, clientName } = req.body || {};
+  const { name, groupId } = req.body || {};
   const buildings = await listBuildings();
   const index = buildings.findIndex((b) => b.id === req.params.buildingId);
   if (index === -1) return res.status(404).json({ error: 'Building not found' });
@@ -109,10 +124,13 @@ buildingsRouter.put('/:buildingId', requireAdmin, async (req, res) => {
     if (!String(name).trim()) return res.status(400).json({ error: 'name cannot be blank' });
     buildings[index] = { ...buildings[index], name: String(name).trim(), id: buildings[index].id };
   }
-  await saveBuildings(buildings);
-  if (clientName !== undefined) {
-    await saveBuildingMetadata(req.params.buildingId, { clientName: cleanClientName(clientName) });
-    buildings[index].clientName = cleanClientName(clientName);
+  if (groupId !== undefined) {
+    const resolved = await resolveGroupId(groupId);
+    if (resolved.error) return res.status(400).json({ error: resolved.error });
+    await saveBuildingMetadata(req.params.buildingId, { groupId: resolved.groupId });
+    buildings[index].groupId = resolved.groupId;
+    const groups = await listGroups();
+    buildings[index].groupName = resolved.groupId ? groups.find((g) => g.id === resolved.groupId)?.name || null : null;
   }
   res.json(buildings[index]);
 });
@@ -122,16 +140,23 @@ buildingsRouter.post('/:buildingId/copy', requireAdmin, async (req, res) => {
   const source = buildings.find((b) => b.id === req.params.buildingId);
   if (!source) return res.status(404).json({ error: 'Building not found' });
 
-  const { name, clientName } = req.body || {};
+  const { name, groupId } = req.body || {};
   const copiedBuilding = {
     id: nextId('bldg'),
     name: String(name || `${source.name} Copy`).trim(),
   };
   if (!copiedBuilding.name) return res.status(400).json({ error: 'name is required' });
 
+  let resolvedGroupId = source.groupId || null;
+  if (groupId !== undefined) {
+    const resolved = await resolveGroupId(groupId);
+    if (resolved.error) return res.status(400).json({ error: resolved.error });
+    resolvedGroupId = resolved.groupId;
+  }
+
   buildings.push(copiedBuilding);
   await saveBuildings(buildings);
-  const metadata = { clientName: clientName === undefined ? source.clientName || '' : cleanClientName(clientName) };
+  const metadata = { groupId: resolvedGroupId };
   await saveBuildingMetadata(copiedBuilding.id, metadata);
 
   const collectionEntries = await Promise.all(
@@ -140,7 +165,9 @@ buildingsRouter.post('/:buildingId/copy', requireAdmin, async (req, res) => {
   const copiedCollections = copyCollections(copiedBuilding.id, Object.fromEntries(collectionEntries));
   await Promise.all(COPY_COLLECTIONS.map((collectionName) => saveCollection(copiedBuilding.id, collectionName, copiedCollections[collectionName])));
 
-  res.status(201).json({ ...copiedBuilding, ...metadata });
+  const groups = await listGroups();
+  const groupName = resolvedGroupId ? groups.find((g) => g.id === resolvedGroupId)?.name || null : null;
+  res.status(201).json({ ...copiedBuilding, ...metadata, groupName });
 });
 
 buildingsRouter.delete('/:buildingId', requireAdmin, async (req, res) => {

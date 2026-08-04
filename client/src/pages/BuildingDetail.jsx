@@ -6,8 +6,9 @@ export default function BuildingDetail() {
   const { buildingId } = useParams();
   const [building, setBuilding] = useState(null);
   const [floors, setFloors] = useState(null);
+  const [groups, setGroups] = useState([]);
   const [buildingName, setBuildingName] = useState('');
-  const [clientName, setClientName] = useState('');
+  const [groupId, setGroupId] = useState('');
   const [floorName, setFloorName] = useState('');
   const [pixelsPerFoot, setPixelsPerFoot] = useState(10);
   const [savingBuilding, setSavingBuilding] = useState(false);
@@ -21,10 +22,11 @@ export default function BuildingDetail() {
       .then((nextBuilding) => {
         setBuilding(nextBuilding);
         setBuildingName(nextBuilding.name || '');
-        setClientName(nextBuilding.clientName || '');
+        setGroupId(nextBuilding.groupId || '');
       })
       .catch((err) => setError(err.message));
     api.listFloors(buildingId).then(setFloors).catch((err) => setError(err.message));
+    api.listGroups().then(setGroups).catch((err) => setError(err.message));
   }
 
   useEffect(refresh, [buildingId]);
@@ -35,10 +37,10 @@ export default function BuildingDetail() {
     setSavingBuilding(true);
     setError(null);
     try {
-      const updated = await api.updateBuilding(buildingId, { name: buildingName.trim(), clientName: clientName.trim() });
+      const updated = await api.updateBuilding(buildingId, { name: buildingName.trim(), groupId: groupId || null });
       setBuilding(updated);
       setBuildingName(updated.name || '');
-      setClientName(updated.clientName || '');
+      setGroupId(updated.groupId || '');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -102,25 +104,29 @@ export default function BuildingDetail() {
           onChange={(e) => setBuildingName(e.target.value)}
           style={{ flex: 1 }}
         />
-        <input
-          aria-label="Client group"
-          placeholder="Client group (e.g. Walmart)"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-          style={{ flex: 1 }}
-        />
+        <select aria-label="Group" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ flex: 1 }}>
+          <option value="">No group</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
         <button
           type="submit"
           className="primary"
           disabled={
             !buildingName.trim() ||
             savingBuilding ||
-            (buildingName.trim() === building?.name && clientName.trim() === (building?.clientName || ''))
+            (buildingName.trim() === building?.name && groupId === (building?.groupId || ''))
           }
         >
           {savingBuilding ? 'Saving...' : 'Save name'}
         </button>
       </form>
+      <p className="muted" style={{ marginTop: -8 }}>
+        <Link to="/admin/groups">Manage groups</Link>
+      </p>
 
       <h2>Floors</h2>
       <form onSubmit={handleCreate} className="card row">

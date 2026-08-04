@@ -6,25 +6,27 @@ const UNGROUPED_CLIENT = 'Ungrouped';
 
 export default function BuildingsList() {
   const [buildings, setBuildings] = useState(null);
+  const [groups, setGroups] = useState([]);
   const [name, setName] = useState('');
-  const [clientName, setClientName] = useState('');
+  const [groupId, setGroupId] = useState('');
   const [error, setError] = useState(null);
 
   function refresh() {
     api.listBuildings().then(setBuildings).catch((err) => setError(err.message));
+    api.listGroups().then(setGroups).catch((err) => setError(err.message));
   }
 
   useEffect(refresh, []);
 
   const buildingGroups = useMemo(() => {
     if (!buildings) return [];
-    const groups = new Map();
+    const groupedBy = new Map();
     for (const building of buildings) {
-      const groupName = building.clientName?.trim() || UNGROUPED_CLIENT;
-      if (!groups.has(groupName)) groups.set(groupName, []);
-      groups.get(groupName).push(building);
+      const groupName = building.groupName || UNGROUPED_CLIENT;
+      if (!groupedBy.has(groupName)) groupedBy.set(groupName, []);
+      groupedBy.get(groupName).push(building);
     }
-    return [...groups.entries()]
+    return [...groupedBy.entries()]
       .map(([groupName, groupBuildings]) => ({
         groupName,
         buildings: groupBuildings.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
@@ -40,9 +42,9 @@ export default function BuildingsList() {
     e.preventDefault();
     setError(null);
     try {
-      await api.createBuilding({ name: name.trim(), clientName: clientName.trim() });
+      await api.createBuilding({ name: name.trim(), groupId: groupId || null });
       setName('');
-      setClientName('');
+      setGroupId('');
       refresh();
     } catch (err) {
       setError(err.message);
@@ -62,10 +64,10 @@ export default function BuildingsList() {
   async function handleCopy(building) {
     const nextName = prompt('Name for the copied building/location:', `${building.name} Copy`);
     if (!nextName?.trim()) return;
-    const nextClientName = prompt('Client group for the copy:', building.clientName || '') ?? (building.clientName || '');
     setError(null);
     try {
-      await api.copyBuilding(building.id, { name: nextName.trim(), clientName: nextClientName.trim() });
+      // Stays in the same group as the source by default (server-side default).
+      await api.copyBuilding(building.id, { name: nextName.trim() });
       refresh();
     } catch (err) {
       setError(err.message);
@@ -74,7 +76,10 @@ export default function BuildingsList() {
 
   return (
     <div className="page">
-      <h1>Buildings</h1>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h1>Buildings</h1>
+        <Link to="/admin/groups">Manage groups</Link>
+      </div>
 
       <form onSubmit={handleCreate} className="card row">
         <input
@@ -83,12 +88,14 @@ export default function BuildingsList() {
           onChange={(e) => setName(e.target.value)}
           style={{ flex: 1 }}
         />
-        <input
-          placeholder="Client group (e.g. Walmart)"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-          style={{ flex: 1 }}
-        />
+        <select aria-label="Group" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ flex: 1 }}>
+          <option value="">No group</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
         <button type="submit" className="primary" disabled={!name.trim()}>
           Add building
         </button>
