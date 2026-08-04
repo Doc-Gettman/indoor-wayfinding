@@ -7,6 +7,8 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
+const ROUTING_VERSION = 2;
+
 function buildRouteMap(pathNodes, floorsById) {
   const floorSegments = [];
   let current = null;
@@ -41,7 +43,7 @@ wayfindRouter.get('/', async (req, res) => {
   const buildingId = req.params.buildingId;
 
   const cached = getCachedRoute(buildingId, from, to);
-  if (cached?.routeMap) return res.json(cached);
+  if (cached?.routeMap && cached.routingVersion === ROUTING_VERSION) return res.json(cached);
 
   const [nodes, edges, pois, floors, landmarks, qrcodes] = await Promise.all([
     getCollection(buildingId, 'nodes'),
@@ -91,6 +93,7 @@ wayfindRouter.get('/', async (req, res) => {
   const payload = {
     instructions,
     generatedBy: llmInstructions ? 'llm' : 'rules',
+    routingVersion: ROUTING_VERSION,
     destination: destinationPoi,
     floorsCrossed: [...new Set(result.nodes.map((n) => n.floorId))],
     routeMap: buildRouteMap(result.nodes, floorsById),

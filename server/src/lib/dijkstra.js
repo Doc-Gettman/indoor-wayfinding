@@ -1,10 +1,19 @@
-export function findShortestPath(nodes, edges, fromNodeId, toNodeId) {
+const FLOOR_CHANGE_PENALTY = 20000;
+
+function isFloorChangeEdge(edge, nodeById) {
+  const from = nodeById.get(edge.from);
+  const to = nodeById.get(edge.to);
+  return Boolean(from && to && from.floorId !== to.floorId);
+}
+
+function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges }) {
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   if (!nodeById.has(fromNodeId) || !nodeById.has(toNodeId)) return null;
 
   const adjacency = new Map(nodes.map((n) => [n.id, []]));
   for (const edge of edges) {
     if (!adjacency.has(edge.from) || !adjacency.has(edge.to)) continue;
+    if (!allowFloorChanges && isFloorChangeEdge(edge, nodeById)) continue;
     adjacency.get(edge.from).push({ to: edge.to, edge });
     adjacency.get(edge.to).push({ to: edge.from, edge });
   }
@@ -30,7 +39,8 @@ export function findShortestPath(nodes, edges, fromNodeId, toNodeId) {
 
     for (const { to, edge } of adjacency.get(currentId)) {
       if (visited.has(to)) continue;
-      const candidate = currentDist + edge.weight;
+      const floorChangePenalty = isFloorChangeEdge(edge, nodeById) ? FLOOR_CHANGE_PENALTY : 0;
+      const candidate = currentDist + edge.weight + floorChangePenalty;
       if (candidate < dist.get(to)) {
         dist.set(to, candidate);
         prevNode.set(to, currentId);
@@ -55,4 +65,17 @@ export function findShortestPath(nodes, edges, fromNodeId, toNodeId) {
     edges: pathEdges,
     totalWeight: dist.get(toNodeId),
   };
+}
+
+export function findShortestPath(nodes, edges, fromNodeId, toNodeId) {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const fromNode = nodeById.get(fromNodeId);
+  const toNode = nodeById.get(toNodeId);
+
+  if (fromNode && toNode && fromNode.floorId === toNode.floorId) {
+    const sameFloorResult = solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges: false });
+    if (sameFloorResult) return sameFloorResult;
+  }
+
+  return solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges: true });
 }
