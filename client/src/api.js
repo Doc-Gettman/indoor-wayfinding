@@ -72,6 +72,8 @@ export const api = {
 
   listEdges: (buildingId) => request(`/buildings/${buildingId}/edges`),
   createEdge: (buildingId, data) => request(`/buildings/${buildingId}/edges`, { method: 'POST', body: json(data) }),
+  updateEdge: (buildingId, edgeId, data) =>
+    request(`/buildings/${buildingId}/edges/${edgeId}`, { method: 'PUT', body: json(data) }),
   deleteEdge: (buildingId, edgeId) => request(`/buildings/${buildingId}/edges/${edgeId}`, { method: 'DELETE' }),
 
   listPois: (buildingId) => request(`/buildings/${buildingId}/pois`),

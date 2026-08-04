@@ -404,6 +404,19 @@ export default function FloorEditor() {
     }
   }
 
+  async function handleUpdateEdge(edgeId, patch) {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.updateEdge(buildingId, edgeId, patch);
+      setBuildingEdges((prev) => prev.map((edge) => (edge.id === edgeId ? updated : edge)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleInsertWaypointOnEdge(edgeId) {
     const edge = buildingEdges.find((e) => e.id === edgeId);
     if (!edge || edge.generatedByTransitionGroup) return;
@@ -589,6 +602,7 @@ export default function FloorEditor() {
                 from={selectedEdgeFrom}
                 to={selectedEdgeTo}
                 saving={saving}
+                onUpdate={(patch) => handleUpdateEdge(selectedEdge.id, patch)}
                 onInsertWaypoint={() => handleInsertWaypointOnEdge(selectedEdge.id)}
                 onDelete={() => handleDeleteEdge(selectedEdge.id)}
               />
@@ -755,8 +769,14 @@ function EdgeListPanel({ edges, selectedEdgeId, selectedEdgeIndex, selectedEdgeR
   );
 }
 
-function EdgePanel({ edge, from, to, saving, onInsertWaypoint, onDelete }) {
+function EdgePanel({ edge, from, to, saving, onUpdate, onInsertWaypoint, onDelete }) {
+  const [type, setType] = useState(edge.type || 'hallway');
   const canEdit = edge && !edge.generatedByTransitionGroup && (edge.type === 'hallway' || edge.type === 'door') && from && to;
+  const hasTypeChange = type !== edge.type;
+
+  useEffect(() => {
+    setType(edge.type || 'hallway');
+  }, [edge.id, edge.type]);
 
   return (
     <div className="card">
@@ -776,14 +796,40 @@ function EdgePanel({ edge, from, to, saving, onInsertWaypoint, onDelete }) {
           This edge is managed by an elevator/stairs group. Edit the linked landings instead.
         </p>
       ) : (
-        <div className="row" style={{ flexWrap: 'wrap' }}>
-          <button type="button" className="primary" onClick={onInsertWaypoint} disabled={!canEdit || saving}>
-            Add waypoint at midpoint
-          </button>
-          <button type="button" className="danger" onClick={onDelete} disabled={saving}>
-            Delete
-          </button>
-        </div>
+        <>
+          <label className="muted" htmlFor="edge-type">Type</label>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <select
+              id="edge-type"
+              value={type}
+              onChange={(event) => setType(event.target.value)}
+              disabled={saving}
+              style={{ flex: 1 }}
+            >
+              <option value="hallway">Hallway</option>
+              <option value="door">Door threshold</option>
+            </select>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => onUpdate({ type })}
+              disabled={!canEdit || !hasTypeChange || saving}
+            >
+              Save type
+            </button>
+          </div>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
+            Use door threshold only for very short links between a door and the hallway centerline.
+          </p>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button type="button" className="primary" onClick={onInsertWaypoint} disabled={!canEdit || saving}>
+              Add waypoint at midpoint
+            </button>
+            <button type="button" className="danger" onClick={onDelete} disabled={saving}>
+              Delete
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

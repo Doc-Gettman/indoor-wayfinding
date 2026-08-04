@@ -76,7 +76,7 @@ export default function FloorCanvas({
   const dragRef = useRef(null);
   const fittedImageRef = useRef(null);
   const zoomRef = useRef(zoom);
-  const pendingScrollRef = useRef(null);
+  const [pendingScroll, setPendingScroll] = useState(null);
   const suppressClickRef = useRef(false);
 
   const panEnabled = true;
@@ -95,7 +95,7 @@ export default function FloorCanvas({
     const paddingX = viewportSize.width * PAN_PADDING_FACTOR;
     const paddingY = viewportSize.height * PAN_PADDING_FACTOR;
     setZoom(fitZoom);
-    pendingScrollRef.current = { left: paddingX, top: paddingY };
+    setPendingScroll({ left: paddingX, top: paddingY });
     return true;
   }
 
@@ -147,10 +147,10 @@ export default function FloorCanvas({
     const paddingX = viewportSize.width * PAN_PADDING_FACTOR;
     const paddingY = viewportSize.height * PAN_PADDING_FACTOR;
     setZoom(newZoom);
-    pendingScrollRef.current = {
+    setPendingScroll({
       left: paddingX + x * newZoom - viewportSize.width / 2,
       top: paddingY + y * newZoom - viewportSize.height / 2,
-    };
+    });
   }
 
   function centerOnEdge(from, to) {
@@ -342,16 +342,20 @@ export default function FloorCanvas({
 
   useEffect(() => {
     const container = scrollRef.current;
-    const pending = pendingScrollRef.current;
-    if (!container || !pending) return;
-    pendingScrollRef.current = null;
+    if (!container || !pendingScroll) return;
+    const { left, top } = pendingScroll;
+    // Cleared via effect (not inline in the setters above) so this always
+    // re-fires on a fresh pending scroll — including back-to-back centers
+    // that land on the same clamped zoom, where setZoom alone wouldn't
+    // trigger a re-render for this effect's other deps to catch.
+    setPendingScroll(null);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        container.scrollLeft = pending.left;
-        container.scrollTop = pending.top;
+        container.scrollLeft = left;
+        container.scrollTop = top;
       });
     });
-  }, [zoom, contentWidth, contentHeight]);
+  }, [pendingScroll, zoom, contentWidth, contentHeight]);
 
   return (
     <div>

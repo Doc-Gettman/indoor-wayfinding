@@ -34,6 +34,24 @@ edgesRouter.post('/', requireAdmin, async (req, res) => {
   res.status(201).json(edge);
 });
 
+edgesRouter.put('/:edgeId', requireAdmin, async (req, res) => {
+  const { type } = req.body || {};
+  if (!MANUAL_EDGE_TYPES.has(type)) {
+    return res.status(400).json({ error: `type must be one of: ${[...MANUAL_EDGE_TYPES].join(', ')}` });
+  }
+
+  const edges = await getCollection(req.params.buildingId, 'edges');
+  const index = edges.findIndex((e) => e.id === req.params.edgeId);
+  if (index === -1) return res.status(404).json({ error: 'Edge not found' });
+  if (edges[index].generatedByTransitionGroup) {
+    return res.status(400).json({ error: 'Generated elevator/stairs group edges cannot be edited directly' });
+  }
+
+  edges[index] = { ...edges[index], type };
+  await saveCollection(req.params.buildingId, 'edges', edges);
+  res.json(edges[index]);
+});
+
 edgesRouter.delete('/:edgeId', requireAdmin, async (req, res) => {
   const edges = await getCollection(req.params.buildingId, 'edges');
   const filtered = edges.filter((e) => e.id !== req.params.edgeId);

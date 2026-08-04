@@ -7,7 +7,63 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 7;
+const ROUTING_VERSION = 8;
+const DEFAULT_PIXELS_PER_FOOT = 10;
+const WALKING_FEET_PER_SECOND = 3;
+const ELEVATOR_BASE_SECONDS = 45;
+const ELEVATOR_SECONDS_PER_FLOOR = 8;
+const STAIRS_BASE_SECONDS = 20;
+const STAIRS_SECONDS_PER_FLOOR = 18;
+
+function floorSortValue(floor, fallbackId) {
+  const raw = String(floor?.sortOrder ?? floor?.level ?? floor?.name ?? fallbackId ?? '');
+  const lower = raw.toLowerCase();
+  const match = lower.match(/-?\d+(\.\d+)?/);
+  if (match) {
+    const value = Number(match[0]);
+    return lower.includes('basement') || lower.startsWith('b') ? -Math.abs(value) : value;
+  }
+  if (lower.includes('ground') || lower.includes('lobby')) return 0;
+  return null;
+}
+
+function floorDelta(fromFloor, toFloor, fromFloorId, toFloorId) {
+  const fromValue = floorSortValue(fromFloor, fromFloorId);
+  const toValue = floorSortValue(toFloor, toFloorId);
+  if (fromValue === null || toValue === null) return 1;
+  return Math.max(1, Math.abs(toValue - fromValue));
+}
+
+function estimateTravelSeconds(pathNodes, pathEdges, floorsById) {
+  let seconds = 0;
+
+  for (let i = 0; i < pathEdges.length; i += 1) {
+    const edge = pathEdges[i];
+    const from = pathNodes[i];
+    const to = pathNodes[i + 1];
+    if (!from || !to) continue;
+
+    if ((edge.type === 'elevator' || edge.type === 'stairs') && from.floorId !== to.floorId) {
+      const delta = floorDelta(floorsById.get(from.floorId), floorsById.get(to.floorId), from.floorId, to.floorId);
+      seconds += edge.type === 'elevator'
+        ? ELEVATOR_BASE_SECONDS + delta * ELEVATOR_SECONDS_PER_FLOOR
+        : STAIRS_BASE_SECONDS + delta * STAIRS_SECONDS_PER_FLOOR;
+      continue;
+    }
+
+    const floor = floorsById.get(from.floorId);
+    const pixelsPerFoot = floor?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
+    const feet = Math.hypot(to.x - from.x, to.y - from.y) / pixelsPerFoot;
+    seconds += feet / WALKING_FEET_PER_SECOND;
+  }
+
+  return seconds;
+}
+
+function travelTimeText(seconds) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  return `Estimated travel time: about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
 
 function buildRouteMap(pathNodes, floorsById) {
   const floorSegments = [];
@@ -91,9 +147,12 @@ wayfindRouter.get('/', async (req, res) => {
       floorsById,
       landmarks,
     });
+  const estimatedTravelSeconds = estimateTravelSeconds(result.nodes, result.edges, floorsById);
+  const instructionsWithTravelTime = [...instructions, travelTimeText(estimatedTravelSeconds)];
 
   const payload = {
-    instructions,
+    instructions: instructionsWithTravelTime,
+    estimatedTravelSeconds: Math.round(estimatedTravelSeconds),
     generatedBy: llmInstructions ? 'llm' : 'rules',
     routingVersion: ROUTING_VERSION,
     destination: destinationPoi,
