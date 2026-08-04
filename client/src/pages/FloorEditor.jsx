@@ -354,8 +354,6 @@ export default function FloorEditor() {
     setError(null);
     try {
       const idMap = new Map();
-      const nodeTypeById = new Map(buildingNodes.map((node) => [node.id, node.nodeType]));
-      const draftTypeByTempId = new Map(draftPoints.map((point) => [point.tempId, point.nodeType]));
       for (const point of draftPoints) {
         const transitionGroupId = point.nodeType === 'transition' ? point.transitionGroupId || crypto.randomUUID() : null;
         const created = await api.createNode(buildingId, {
@@ -379,12 +377,8 @@ export default function FloorEditor() {
       function resolveRealId(ref) {
         return ref.type === 'existing' ? ref.id : idMap.get(ref.tempId);
       }
-      function resolveNodeType(ref) {
-        return ref.type === 'existing' ? nodeTypeById.get(ref.id) : draftTypeByTempId.get(ref.tempId);
-      }
       for (const edge of draftEdges) {
-        const type = resolveNodeType(edge.from) === 'door' || resolveNodeType(edge.to) === 'door' ? 'door' : 'hallway';
-        await api.createEdge(buildingId, { from: resolveRealId(edge.from), to: resolveRealId(edge.to), type });
+        await api.createEdge(buildingId, { from: resolveRealId(edge.from), to: resolveRealId(edge.to), type: 'hallway' });
       }
       resetChain();
       refresh();
@@ -428,8 +422,9 @@ export default function FloorEditor() {
         label: '',
         nodeType: 'waypoint',
       });
-      await api.createEdge(buildingId, { from: from.id, to: created.id, type: edge.type });
-      await api.createEdge(buildingId, { from: created.id, to: to.id, type: edge.type });
+      const type = from.nodeType === 'door' || to.nodeType === 'door' ? 'hallway' : edge.type;
+      await api.createEdge(buildingId, { from: from.id, to: created.id, type });
+      await api.createEdge(buildingId, { from: created.id, to: to.id, type });
       await api.deleteEdge(buildingId, edge.id);
       setSelectedEdgeId(null);
       setSelectedNodeId(created.id);
