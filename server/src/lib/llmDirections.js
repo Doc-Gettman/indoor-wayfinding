@@ -139,7 +139,12 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, floorsById, land
       nextDoorDescription: nextNode?.nodeType === 'door' ? nextNode.doorDescription || null : null,
       nearbyLandmarks: nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot),
     });
-    previousHeading = heading;
+    // The very first segment's heading is a straight line from wherever the
+    // origin room's POI pin happens to sit to the exit door — not a real
+    // facing direction, since nobody has one fixed position inside a room.
+    // Don't let it seed a fabricated turn call-out for the segment right
+    // after the door, the same way transitions reset previousHeading below.
+    previousHeading = i === 0 && from.nodeType === 'destination' ? null : heading;
   }
   return {
     origin: origin ? { label: origin.label, nodeType: origin.nodeType, nodeLabel: origin.nodeLabel || null } : null,
@@ -157,6 +162,7 @@ Guidelines:
 - Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
 - Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor." If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
 - A transition segment's arrivalOrientationUnknown means the app has no idea which physical car the visitor rode or which way they're facing after the doors open — never say "turn left" or "turn right" as the very first instruction after an elevator/stairs arrival (this is also why directionFromPrevious is null for the segment right after one). Use exitOptionsCount instead: if it's 0 or 1, there was only one way to walk from that landing, so say so plainly, e.g. "step out and go the only way you can, then turn right at the end of the hall" (the turn at the *next* junction is fine — that's a normal directionAfterArrival, not tied to facing at the elevator). If exitOptionsCount is more than 1, disambiguate using the arriving segment's toLabel/nearbyLandmarks instead of left/right — e.g. "head toward the doors marked Radiology" — rather than guessing a direction.
+- For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("head down the hallway") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
 - Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" and describe the first segment's distance qualitatively, per the distance guideline above.
 - Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided.

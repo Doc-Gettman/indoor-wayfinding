@@ -261,6 +261,7 @@ export default function FloorEditor() {
       transitionSubtype: 'elevator',
       transitionGroupId: null,
       transitionGroupName: '',
+      transitionRequiresBadgeAccess: false,
       doorDescription: '',
       poiName: '',
       poiDescription: '',
@@ -354,6 +355,7 @@ export default function FloorEditor() {
           transitionSubtype: point.nodeType === 'transition' ? point.transitionSubtype : null,
           transitionGroupId,
           transitionGroupName: point.nodeType === 'transition' ? point.transitionGroupName || point.label || '' : null,
+          transitionRequiresBadgeAccess: point.nodeType === 'transition' ? point.transitionRequiresBadgeAccess : false,
           doorDescription: point.nodeType === 'door' ? point.doorDescription : null,
         });
         idMap.set(point.tempId, created.id);
@@ -679,6 +681,7 @@ function EdgePanel({ edge, from, to, saving, onInsertWaypoint, onDelete }) {
       <p className="muted" style={{ marginBottom: 8 }}>
         {edge.type} connection
         {edge.weight ? ` - ${Math.round(edge.weight)}px` : ''}
+        {edge.requiresBadgeAccess ? ' - badge access' : ''}
       </p>
       {from && to && (
         <p className="muted" style={{ marginBottom: 12 }}>
@@ -978,6 +981,17 @@ function DraftPointFields({ point, floors, buildingNodes, currentFloorId, onUpda
             currentGroupName={point.transitionGroupName}
             onChange={(groupId, groupName) => onUpdate(point.tempId, { transitionGroupId: groupId, transitionGroupName: groupName })}
           />
+          <label className="row" style={{ gap: 6, marginTop: 8, marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={Boolean(point.transitionRequiresBadgeAccess)}
+              onChange={(e) => onUpdate(point.tempId, { transitionRequiresBadgeAccess: e.target.checked })}
+            />
+            <span>Requires badge access on this landing</span>
+          </label>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Routes avoid badge-required stair/elevator landings when a reasonable no-badge option exists.
+          </p>
         </>
       )}
     </div>
@@ -1158,6 +1172,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
   const [transitionSubtype, setTransitionSubtype] = useState(node.transitionSubtype || 'elevator');
   const [groupChoice, setGroupChoice] = useState(node.transitionGroupId || null);
   const [groupName, setGroupName] = useState(node.transitionGroupName || '');
+  const [transitionRequiresBadgeAccess, setTransitionRequiresBadgeAccess] = useState(Boolean(node.transitionRequiresBadgeAccess));
   const [doorDescription, setDoorDescription] = useState(node.doorDescription || '');
   const [error, setError] = useState(null);
 
@@ -1184,10 +1199,12 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
         patch.transitionSubtype = transitionSubtype;
         patch.transitionGroupId = groupChoice || crypto.randomUUID();
         patch.transitionGroupName = groupName || label || '';
+        patch.transitionRequiresBadgeAccess = transitionRequiresBadgeAccess;
       } else {
         patch.transitionSubtype = null;
         patch.transitionGroupId = null;
         patch.transitionGroupName = null;
+        patch.transitionRequiresBadgeAccess = false;
       }
       await api.updateNode(buildingId, node.id, patch);
 
@@ -1310,6 +1327,17 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
           />
           <p className="muted" style={{ marginBottom: 8 }}>
             Nodes sharing a group are treated as landings of the same elevator/stairwell; every pair connects directly.
+          </p>
+          <label className="row" style={{ gap: 6, marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={transitionRequiresBadgeAccess}
+              onChange={(e) => setTransitionRequiresBadgeAccess(e.target.checked)}
+            />
+            <span>Requires badge access on this landing</span>
+          </label>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+            Routes avoid badge-required stair/elevator landings when a reasonable no-badge option exists.
           </p>
           {groupChoice && (
             <>

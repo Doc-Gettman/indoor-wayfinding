@@ -41,6 +41,7 @@ export function syncTransitionEdges(nodes, edges, changedNode) {
       const sameFloor = from.floorId === to.floorId;
       const type = sameFloor ? 'hallway' : from.transitionSubtype || to.transitionSubtype || changedNode.transitionSubtype;
       const weight = sameFloor ? Math.hypot(to.x - from.x, to.y - from.y) : TRANSITION_WEIGHTS[type] ?? 200;
+      const requiresBadgeAccess = !sameFloor && Boolean(from.transitionRequiresBadgeAccess || to.transitionRequiresBadgeAccess);
       newEdges.push({
         id: nextId('edge'),
         from: from.id,
@@ -48,6 +49,7 @@ export function syncTransitionEdges(nodes, edges, changedNode) {
         type,
         transitionGroupId: changedNode.transitionGroupId,
         weight,
+        ...(requiresBadgeAccess ? { requiresBadgeAccess: true } : {}),
         ...(sameFloor ? { generatedByTransitionGroup: true } : {}),
       });
     }

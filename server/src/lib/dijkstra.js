@@ -1,9 +1,16 @@
 const FLOOR_CHANGE_PENALTY = 20000;
+const BADGE_ACCESS_PENALTY = 60000;
 
 function isFloorChangeEdge(edge, nodeById) {
   const from = nodeById.get(edge.from);
   const to = nodeById.get(edge.to);
   return Boolean(from && to && from.floorId !== to.floorId);
+}
+
+function isBadgeAccessEdge(edge, nodeById) {
+  const from = nodeById.get(edge.from);
+  const to = nodeById.get(edge.to);
+  return Boolean(edge.requiresBadgeAccess || from?.transitionRequiresBadgeAccess || to?.transitionRequiresBadgeAccess);
 }
 
 function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges }) {
@@ -40,7 +47,8 @@ function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChang
     for (const { to, edge } of adjacency.get(currentId)) {
       if (visited.has(to)) continue;
       const floorChangePenalty = isFloorChangeEdge(edge, nodeById) ? FLOOR_CHANGE_PENALTY : 0;
-      const candidate = currentDist + edge.weight + floorChangePenalty;
+      const badgeAccessPenalty = isBadgeAccessEdge(edge, nodeById) ? BADGE_ACCESS_PENALTY : 0;
+      const candidate = currentDist + edge.weight + floorChangePenalty + badgeAccessPenalty;
       if (candidate < dist.get(to)) {
         dist.set(to, candidate);
         prevNode.set(to, currentId);
