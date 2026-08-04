@@ -31,6 +31,7 @@ export default function FloorEditor() {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState(null);
   const [edgeFocusNonce, setEdgeFocusNonce] = useState(0);
+  const [edgeSplitPoint, setEdgeSplitPoint] = useState(null);
   const selectedEdgeRowRef = useRef(null);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState(null);
   const [qrOriginNodeId, setQrOriginNodeId] = useState('');
@@ -100,6 +101,7 @@ export default function FloorEditor() {
   const selectedEdge = buildingEdges.find((e) => e.id === selectedEdgeId) || null;
   const selectedEdgeFrom = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.from) || null : null;
   const selectedEdgeTo = selectedEdge ? buildingNodes.find((n) => n.id === selectedEdge.to) || null : null;
+  const activeEdgeSplitPoint = edgeSplitPoint && edgeSplitPoint.edgeId === selectedEdgeId ? edgeSplitPoint : null;
   const selectedFloorEdgeIndex = floorEdges.findIndex((edge) => edge.id === selectedEdgeId);
   const selectedLandmark = landmarks.find((l) => l.id === selectedLandmarkId) || null;
   const selectedDraftPoint = draftPoints.find((p) => p.tempId === selectedDraftId) || null;
@@ -317,13 +319,19 @@ export default function FloorEditor() {
     setSelectedDraftId(null);
   }
 
-  function handleSelectEdge(edgeId) {
+  function handleSelectEdge(edgeId, point = null) {
     setMode('select');
+    // Re-clicking the line of the edge that's already selected is how the
+    // split point gets fine-tuned — don't re-center/re-zoom on every one of
+    // those clicks, only when actually switching to a different edge.
+    if (edgeId !== selectedEdgeId) {
+      setEdgeFocusNonce((n) => n + 1);
+      setSelectedNodeId(null);
+      setSelectedLandmarkId(null);
+      setSelectedDraftId(null);
+    }
     setSelectedEdgeId(edgeId);
-    setEdgeFocusNonce((n) => n + 1);
-    setSelectedNodeId(null);
-    setSelectedLandmarkId(null);
-    setSelectedDraftId(null);
+    setEdgeSplitPoint(point ? { edgeId, x: point.x, y: point.y } : null);
   }
 
   function handleSelectEdgeByIndex(index) {
@@ -417,7 +425,7 @@ export default function FloorEditor() {
     }
   }
 
-  async function handleInsertWaypointOnEdge(edgeId) {
+  async function handleInsertWaypointOnEdge(edgeId, point) {
     const edge = buildingEdges.find((e) => e.id === edgeId);
     if (!edge || edge.generatedByTransitionGroup) return;
 
@@ -430,8 +438,8 @@ export default function FloorEditor() {
     try {
       const created = await api.createNode(buildingId, {
         floorId: from.floorId,
-        x: Math.round((from.x + to.x) / 2),
-        y: Math.round((from.y + to.y) / 2),
+        x: point?.x ?? Math.round((from.x + to.x) / 2),
+        y: point?.y ?? Math.round((from.y + to.y) / 2),
         label: '',
         nodeType: 'waypoint',
       });
@@ -440,6 +448,7 @@ export default function FloorEditor() {
       await api.createEdge(buildingId, { from: created.id, to: to.id, type });
       await api.deleteEdge(buildingId, edge.id);
       setSelectedEdgeId(null);
+      setEdgeSplitPoint(null);
       setSelectedNodeId(created.id);
       setSelectedLandmarkId(null);
       setSelectedDraftId(null);
@@ -602,8 +611,9 @@ export default function FloorEditor() {
                 from={selectedEdgeFrom}
                 to={selectedEdgeTo}
                 saving={saving}
+                splitPoint={activeEdgeSplitPoint}
                 onUpdate={(patch) => handleUpdateEdge(selectedEdge.id, patch)}
-                onInsertWaypoint={() => handleInsertWaypointOnEdge(selectedEdge.id)}
+                onInsertWaypoint={() => handleInsertWaypointOnEdge(selectedEdge.id, activeEdgeSplitPoint)}
                 onDelete={() => handleDeleteEdge(selectedEdge.id)}
               />
             ) : (
@@ -639,6 +649,7 @@ export default function FloorEditor() {
               focusNodeId={mode === 'qr' ? highlightedQrNodeId : null}
               focusEdgeId={selectedEdgeId}
               focusEdgeNonce={edgeFocusNonce}
+              edgeSplitPoint={activeEdgeSplitPoint}
               mode={mode === 'qr' ? 'select' : mode}
               onCanvasClick={handleCanvasClick}
               onNodeClick={handleNodeClick}
@@ -769,7 +780,7 @@ function EdgeListPanel({ edges, selectedEdgeId, selectedEdgeIndex, selectedEdgeR
   );
 }
 
-function EdgePanel({ edge, from, to, saving, onUpdate, onInsertWaypoint, onDelete }) {
+function EdgePanel({ edge, from, to, saving, splitPoint, onUpdate, onInsertWaypoint, onDelete }) {
   const [type, setType] = useState(edge.type || 'hallway');
   const canEdit = edge && !edge.generatedByTransitionGroup && (edge.type === 'hallway' || edge.type === 'door') && from && to;
   const hasTypeChange = type !== edge.type;
@@ -821,9 +832,14 @@ function EdgePanel({ edge, from, to, saving, onUpdate, onInsertWaypoint, onDelet
           <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
             Use door threshold only for very short links between a door and the hallway centerline.
           </p>
+          <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
+            {splitPoint
+              ? 'Click "Add waypoint at selection" to split the edge at the marked point, or click elsewhere on the line to move it.'
+              : 'Click a point on this edge\'s line in the map to choose where to split it.'}
+          </p>
           <div className="row" style={{ flexWrap: 'wrap' }}>
-            <button type="button" className="primary" onClick={onInsertWaypoint} disabled={!canEdit || saving}>
-              Add waypoint at midpoint
+            <button type="button" className="primary" onClick={onInsertWaypoint} disabled={!canEdit || !splitPoint || saving}>
+              Add waypoint at selection
             </button>
             <button type="button" className="danger" onClick={onDelete} disabled={saving}>
               Delete

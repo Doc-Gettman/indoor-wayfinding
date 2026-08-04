@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
 
@@ -110,6 +110,10 @@ export default function Wayfind() {
   const [floors, setFloors] = useState(null);
   const [nodes, setNodes] = useState(null);
   const [destinationSearch, setDestinationSearch] = useState('');
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechListening, setSpeechListening] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+  const speechRecognitionRef = useRef(null);
   const [loadError, setLoadError] = useState(null);
 
   const [selectedPoiId, setSelectedPoiId] = useState(null);
@@ -147,6 +151,15 @@ export default function Wayfind() {
   useEffect(() => {
     setOriginNode(nodes?.find((n) => n.id === originNodeId) || null);
   }, [nodes, originNodeId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setSpeechSupported(Boolean(SpeechRecognition));
+    return () => {
+      speechRecognitionRef.current?.abort();
+    };
+  }, []);
 
   const originLabel = originQrCode?.label || originNode?.label || 'your current location';
   const originFloor = floors?.find((floor) => floor.id === originNode?.floorId) || null;
@@ -213,6 +226,38 @@ export default function Wayfind() {
     setSelectedPoiId(null);
     setDirections(null);
     setDirectionsError(null);
+  }
+
+  function handleVoiceSearch() {
+    if (typeof window === 'undefined') return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (speechListening) {
+      speechRecognitionRef.current?.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    speechRecognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      setSpeechError('');
+      setSpeechListening(true);
+    };
+    recognition.onresult = (event) => {
+      const phrase = event.results?.[0]?.[0]?.transcript?.trim();
+      if (phrase) setDestinationSearch(phrase);
+    };
+    recognition.onerror = () => {
+      setSpeechError('Voice search was not available. You can still type your destination.');
+    };
+    recognition.onend = () => {
+      setSpeechListening(false);
+    };
+    recognition.start();
   }
 
   if (!originNodeId) {
@@ -323,17 +368,35 @@ export default function Wayfind() {
             <p className="muted">No destinations have been configured for this building yet.</p>
           ) : (
             <>
-              <label className="wayfind-search" htmlFor="destination-search">
+              <div className="wayfind-search">
+                <label className="sr-only" htmlFor="destination-search">Search destinations</label>
                 <span className="wayfind-search__icon" aria-hidden="true" />
                 <input
                   id="destination-search"
                   type="search"
                   value={destinationSearch}
-                  onChange={(event) => setDestinationSearch(event.target.value)}
+                  onChange={(event) => {
+                    setDestinationSearch(event.target.value);
+                    setSpeechError('');
+                  }}
                   placeholder="Search destinations"
                   autoComplete="off"
                 />
-              </label>
+                {speechSupported && (
+                  <button
+                    type="button"
+                    className={`wayfind-search__mic${speechListening ? ' wayfind-search__mic--listening' : ''}`}
+                    onClick={handleVoiceSearch}
+                    aria-label={speechListening ? 'Stop voice search' : 'Search destinations by voice'}
+                    aria-pressed={speechListening}
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+              <p className="sr-only" aria-live="polite">
+                {speechListening ? 'Listening for a destination.' : speechError}
+              </p>
               {destinationCount === 0 ? (
                 <p className="muted">No destinations match your search.</p>
               ) : (
@@ -343,17 +406,14 @@ export default function Wayfind() {
                       <h3 id={`floor-${group.floorId}`}>{group.floorName}</h3>
                       <ul className="list">
                         {group.pois.map((poi) => (
-                          <li
-                            key={poi.id}
-                            className="list-item"
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => handleSelectDestination(poi)}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{poi.name}</div>
-                              {poi.description && <div className="muted">{poi.description}</div>}
-                            </div>
-                            <span aria-hidden="true">&rsaquo;</span>
+                          <li key={poi.id} className="list-item destination-list-item">
+                            <button type="button" className="destination-button" onClick={() => handleSelectDestination(poi)}>
+                              <span>
+                                <span className="destination-button__name">{poi.name}</span>
+                                {poi.description && <span className="muted destination-button__description">{poi.description}</span>}
+                              </span>
+                              <span aria-hidden="true">&rsaquo;</span>
+                            </button>
                           </li>
                         ))}
                       </ul>

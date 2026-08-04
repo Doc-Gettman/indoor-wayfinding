@@ -59,6 +59,7 @@ export default function FloorCanvas({
   focusNodeId,
   focusEdgeId,
   focusEdgeNonce,
+  edgeSplitPoint,
   mode,
   onCanvasClick,
   onNodeClick,
@@ -244,13 +245,37 @@ export default function FloorCanvas({
     onNodeClick(id);
   }
 
-  function handleEdgeClick(id) {
+  // Projects the click onto the edge's line segment (clamped to its
+  // endpoints) so "add waypoint at selection" always splits exactly on the
+  // line, even though the actual click can land a few pixels off it (there's
+  // a wide invisible hit-area around each edge to make clicking easier).
+  function projectPointOntoEdge(edge, clickX, clickY) {
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) return null;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const lengthSq = dx * dx + dy * dy;
+    const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((clickX - from.x) * dx + (clickY - from.y) * dy) / lengthSq));
+    return { x: Math.round(from.x + dx * t), y: Math.round(from.y + dy * t) };
+  }
+
+  function handleEdgeClick(id, e) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
     if (mode !== 'select') return;
-    onEdgeClick(id);
+    const edge = edges.find((candidate) => candidate.id === id);
+    const svg = e?.currentTarget?.ownerSVGElement;
+    let point = null;
+    if (edge && svg) {
+      const rect = svg.getBoundingClientRect();
+      const clickX = (e.clientX - rect.left) / zoom;
+      const clickY = (e.clientY - rect.top) / zoom;
+      point = projectPointOntoEdge(edge, clickX, clickY);
+    }
+    onEdgeClick(id, point);
   }
 
   function handleDraftPointClick(tempId) {
@@ -424,7 +449,7 @@ export default function FloorCanvas({
                     key={edge.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleEdgeClick(edge.id);
+                      handleEdgeClick(edge.id, e);
                     }}
                     style={{ cursor: mode === 'select' ? 'pointer' : undefined }}
                   >
@@ -449,6 +474,17 @@ export default function FloorCanvas({
                   </g>
                 );
               })}
+
+              {edgeSplitPoint && selectedEdgeId && (
+                <circle
+                  cx={edgeSplitPoint.x}
+                  cy={edgeSplitPoint.y}
+                  r={screenPx(8, zoom)}
+                  fill="#fff"
+                  stroke="#f97316"
+                  strokeWidth={screenPx(3, zoom)}
+                />
+              )}
 
               {draftEdges.map((edge, i) => (
                 <line
