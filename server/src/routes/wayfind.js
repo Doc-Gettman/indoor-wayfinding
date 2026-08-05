@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 8;
+const ROUTING_VERSION = 9;
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const WALKING_FEET_PER_SECOND = 3;
 const ELEVATOR_BASE_SECONDS = 45;
@@ -61,7 +61,10 @@ function estimateTravelSeconds(pathNodes, pathEdges, floorsById) {
 }
 
 function travelTimeText(seconds) {
-  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (seconds < 60) {
+    return 'Estimated travel time: it just takes a few seconds.';
+  }
+  const minutes = Math.round(seconds / 60);
   return `Estimated travel time: about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }
 

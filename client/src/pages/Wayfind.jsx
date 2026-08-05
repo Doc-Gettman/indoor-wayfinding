@@ -22,27 +22,72 @@ function compareFloors(a, b) {
 // Voice search rarely produces the exact word an admin typed into a POI
 // name — speech-to-text often converts spoken ordinals to numerals
 // ("eighth" -> "8th"), and everyday phrasing differs from the posted name
-// ("bathroom" for a POI named "Restroom"). This is a small, curated set of
-// synonyms for common indoor-wayfinding terms, not a general thesaurus.
-const DESTINATION_SYNONYMS = {
-  bathroom: ['restroom', 'washroom', 'toilet', 'lavatory'],
-  restroom: ['bathroom', 'washroom', 'toilet', 'lavatory'],
-  washroom: ['bathroom', 'restroom'],
-  toilet: ['bathroom', 'restroom'],
-  lavatory: ['bathroom', 'restroom'],
-  elevator: ['lift'],
-  lift: ['elevator'],
-  stairs: ['staircase', 'stairwell', 'steps'],
-  staircase: ['stairs', 'stairwell'],
-  stairwell: ['stairs', 'staircase'],
-  kitchen: ['breakroom', 'lunchroom'],
-  breakroom: ['kitchen', 'lunchroom'],
-  lunchroom: ['kitchen', 'breakroom'],
-  conference: ['meeting'],
-  meeting: ['conference'],
-  reception: ['lobby', 'frontdesk'],
-  lobby: ['reception'],
-};
+// ("bathroom" for a POI named "Restroom") or from whatever an admin
+// happened to list in a description ("microwave" for a "Kitchen" POI that
+// may or may not mention microwaves). Grouped so every word in a group is
+// treated as interchangeable with every other word in it — a small, curated
+// vocabulary for common indoor-wayfinding terms, not a general thesaurus.
+const DESTINATION_SYNONYM_GROUPS = [
+  ['bathroom', 'restroom', 'washroom', 'toilet', 'lavatory', 'loo'],
+  // Gendered qualifiers, split so "ladies bathroom" narrows to the women's
+  // restroom instead of matching either one — kept separate from the group
+  // above on purpose.
+  ['ladies', 'lady', 'women', 'womens', 'girls', 'girl', 'gals', 'female'],
+  ['gents', 'gentlemen', 'men', 'mens', 'guys', 'boys', 'boy', 'male'],
+  ['elevator', 'lift'],
+  ['stairs', 'staircase', 'stairwell', 'steps'],
+  ['kitchen', 'breakroom', 'lunchroom'],
+  ['conference', 'meeting'],
+  ['reception', 'lobby', 'frontdesk'],
+];
+
+// One-directional, unlike the groups above: searching for a specific
+// appliance should still find "Kitchen" even when that POI's own
+// description doesn't happen to list it, but searching "kitchen" shouldn't
+// pull in every unrelated POI that happens to mention e.g. "coffee" by name
+// (a standalone "Coffee/Water Station"). So these map forward onto the
+// kitchen group's words, but the kitchen group doesn't map back to them.
+const KITCHEN_AMENITY_WORDS = ['microwave', 'microwaves', 'fridge', 'refrigerator', 'coffee', 'snacks', 'vending'];
+const KITCHEN_GROUP_INDEX = DESTINATION_SYNONYM_GROUPS.findIndex((group) => group.includes('kitchen'));
+
+// Maps a word to the index of the curated group it belongs to (if any) —
+// used to stop the generic fuzzy/edit-distance fallback below from quietly
+// bridging two deliberately-separate groups. Without this, "women" and
+// "men" are only two letters apart (w-o-men) and end up "close enough" to
+// match each other, defeating the whole point of splitting them.
+const WORD_TO_SYNONYM_GROUP = new Map();
+const DESTINATION_SYNONYMS = {};
+DESTINATION_SYNONYM_GROUPS.forEach((group, index) => {
+  for (const word of group) {
+    WORD_TO_SYNONYM_GROUP.set(word, index);
+    DESTINATION_SYNONYMS[word] = group.filter((other) => other !== word);
+  }
+});
+for (const amenity of KITCHEN_AMENITY_WORDS) {
+  WORD_TO_SYNONYM_GROUP.set(amenity, KITCHEN_GROUP_INDEX);
+  DESTINATION_SYNONYMS[amenity] = DESTINATION_SYNONYM_GROUPS[KITCHEN_GROUP_INDEX];
+}
+
+// Words that, immediately followed by "room" in a search phrase, mean the
+// men's/women's restroom ("ladies room", "mens room") rather than a literal
+// "room" — which is too generic a word to synonym-match "restroom" on its
+// own (it would also pull in every literal "Conference Room"/"Huddle Room").
+const GENDER_QUALIFIER_WORDS = new Set([
+  'ladies', 'lady', 'women', 'womens', 'girls', 'girl', 'gals', 'female',
+  'gents', 'gentlemen', 'men', 'mens', 'guys', 'boys', 'boy', 'male',
+]);
+
+// "room" only means restroom right after a gender qualifier — everywhere
+// else it stays literal so it can still match "Conference Room" etc. Skips
+// over a lone "s" token so "lady's room" (which tokenizes to ["lady", "s",
+// "room"]) is still recognized as adjacent.
+function expandGenderedRoomPhrases(words) {
+  return words.map((word, i) => {
+    if (word !== 'room') return word;
+    const prev = words[i - 1] === 's' ? words[i - 2] : words[i - 1];
+    return GENDER_QUALIFIER_WORDS.has(prev) ? 'restroom' : word;
+  });
+}
 
 const CARDINAL_WORDS = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -58,7 +103,8 @@ const ORDINAL_WORDS = {
 
 const SEARCH_STOPWORDS = new Set([
   'a', 'an', 'the', 'to', 'for', 'at', 'in', 'on', 'of', 'go', 'take', 'me', 'find',
-  'where', 'is', 'are', 'please', 'can', 'you', 'i', 'need', 'want', 'looking',
+  'where', 'is', 'are', 'please', 'can', 'you', 'i', 'need', 'want', 'looking', 'machine',
+  'there', 'anywhere', 'somewhere', 'here', 'around', 'near', 'nearby', 'nearest', 'closest', 'any', 'some',
 ]);
 
 // Collapses "eighth"/"8th"/"eight" down to a bare "8" so a spoken ordinal
@@ -95,9 +141,15 @@ function levenshteinDistance(a, b) {
 
 // Exact match, a prefix match either direction, or — for words long enough
 // that a stray letter is meaningful rather than noise — a small edit
-// distance, to tolerate near-misses from speech-to-text transcription.
+// distance, to tolerate near-misses from speech-to-text transcription. Words
+// belonging to two different curated groups (e.g. "women" vs "men") never
+// fuzzy- or prefix-match each other, even when they'd otherwise be "close
+// enough" — that's exactly the distinction those groups exist to preserve.
 function searchWordsMatch(queryWord, targetWord) {
   if (queryWord === targetWord) return true;
+  const queryGroup = WORD_TO_SYNONYM_GROUP.get(queryWord);
+  const targetGroup = WORD_TO_SYNONYM_GROUP.get(targetWord);
+  if (queryGroup !== undefined && targetGroup !== undefined && queryGroup !== targetGroup) return false;
   if (queryWord.length < 3 || targetWord.length < 3) return false;
   if (targetWord.startsWith(queryWord) || queryWord.startsWith(targetWord)) return true;
   const maxDistance = queryWord.length <= 4 ? 1 : 2;
@@ -108,7 +160,9 @@ function searchWordsMatch(queryWord, targetWord) {
 // present in the target text — via synonym, number-word normalization, or a
 // close-enough spelling — rather than requiring an exact substring.
 function matchesDestinationSearch(searchPhrase, targetText) {
-  const queryWords = tokenizeSearchText(searchPhrase).filter((word) => !SEARCH_STOPWORDS.has(word));
+  const queryWords = expandGenderedRoomPhrases(
+    tokenizeSearchText(searchPhrase).filter((word) => !SEARCH_STOPWORDS.has(word)),
+  );
   if (queryWords.length === 0) return true;
   const targetWords = tokenizeSearchText(targetText);
   if (targetWords.length === 0) return false;
