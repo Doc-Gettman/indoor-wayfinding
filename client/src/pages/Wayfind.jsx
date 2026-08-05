@@ -225,6 +225,7 @@ function DestinationMap({ groups, originNode, originFloor, onSelectDestination }
 
 function DestinationMapFloor({ group, originNode, onSelectDestination }) {
   const [imageSize, setImageSize] = useState(null);
+  const [selectedPoi, setSelectedPoi] = useState(null);
 
   return (
     <figure className="destination-map__floor">
@@ -242,7 +243,7 @@ function DestinationMapFloor({ group, originNode, onSelectDestination }) {
                 className="destination-map__marker destination-map__marker--origin"
                 style={{ left: `${(originNode.x / imageSize.width) * 100}%`, top: `${(originNode.y / imageSize.height) * 100}%` }}
               >
-                <span>You are here</span>
+                <span className="sr-only">You are here</span>
               </div>
             )}
             {group.pois.map((poi) => {
@@ -254,13 +255,28 @@ function DestinationMapFloor({ group, originNode, onSelectDestination }) {
                   type="button"
                   className="destination-map__marker destination-map__marker--destination"
                   style={{ left: `${(node.x / imageSize.width) * 100}%`, top: `${(node.y / imageSize.height) * 100}%` }}
-                  onClick={() => onSelectDestination(poi)}
-                  aria-label={`Get directions to ${poi.name}`}
+                  onClick={() => setSelectedPoi(poi)}
+                  aria-label={`Show ${poi.name}`}
                 >
-                  <span>{poi.name}</span>
+                  <span className="sr-only">{poi.name}</span>
                 </button>
               );
             })}
+            {selectedPoi?.node && (
+              <div
+                className="destination-map__callout"
+                style={{
+                  left: `${(selectedPoi.node.x / imageSize.width) * 100}%`,
+                  top: `${(selectedPoi.node.y / imageSize.height) * 100}%`,
+                }}
+              >
+                <strong>{selectedPoi.name}</strong>
+                {selectedPoi.description && <span>{selectedPoi.description}</span>}
+                <button type="button" className="primary" onClick={() => onSelectDestination(selectedPoi)}>
+                  Get directions
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
