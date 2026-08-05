@@ -19,6 +19,106 @@ function compareFloors(a, b) {
   return a.floorId.localeCompare(b.floorId);
 }
 
+// Voice search rarely produces the exact word an admin typed into a POI
+// name — speech-to-text often converts spoken ordinals to numerals
+// ("eighth" -> "8th"), and everyday phrasing differs from the posted name
+// ("bathroom" for a POI named "Restroom"). This is a small, curated set of
+// synonyms for common indoor-wayfinding terms, not a general thesaurus.
+const DESTINATION_SYNONYMS = {
+  bathroom: ['restroom', 'washroom', 'toilet', 'lavatory'],
+  restroom: ['bathroom', 'washroom', 'toilet', 'lavatory'],
+  washroom: ['bathroom', 'restroom'],
+  toilet: ['bathroom', 'restroom'],
+  lavatory: ['bathroom', 'restroom'],
+  elevator: ['lift'],
+  lift: ['elevator'],
+  stairs: ['staircase', 'stairwell', 'steps'],
+  staircase: ['stairs', 'stairwell'],
+  stairwell: ['stairs', 'staircase'],
+  kitchen: ['breakroom', 'lunchroom'],
+  breakroom: ['kitchen', 'lunchroom'],
+  lunchroom: ['kitchen', 'breakroom'],
+  conference: ['meeting'],
+  meeting: ['conference'],
+  reception: ['lobby', 'frontdesk'],
+  lobby: ['reception'],
+};
+
+const CARDINAL_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+};
+
+const ORDINAL_WORDS = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8,
+  ninth: 9, tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14,
+  fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20,
+};
+
+const SEARCH_STOPWORDS = new Set([
+  'a', 'an', 'the', 'to', 'for', 'at', 'in', 'on', 'of', 'go', 'take', 'me', 'find',
+  'where', 'is', 'are', 'please', 'can', 'you', 'i', 'need', 'want', 'looking',
+]);
+
+// Collapses "eighth"/"8th"/"eight" down to a bare "8" so a spoken ordinal
+// matches a numeral typed into a POI name (or vice versa).
+function normalizeSearchWord(word) {
+  if (CARDINAL_WORDS[word] !== undefined) return String(CARDINAL_WORDS[word]);
+  if (ORDINAL_WORDS[word] !== undefined) return String(ORDINAL_WORDS[word]);
+  const ordinalDigits = word.match(/^(\d+)(st|nd|rd|th)$/);
+  if (ordinalDigits) return ordinalDigits[1];
+  return word;
+}
+
+function tokenizeSearchText(text) {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) || []).map(normalizeSearchWord);
+}
+
+function levenshteinDistance(a, b) {
+  if (a === b) return 0;
+  const la = a.length;
+  const lb = b.length;
+  if (la === 0) return lb;
+  if (lb === 0) return la;
+  let prev = Array.from({ length: lb + 1 }, (_, j) => j);
+  for (let i = 1; i <= la; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= lb; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[lb];
+}
+
+// Exact match, a prefix match either direction, or — for words long enough
+// that a stray letter is meaningful rather than noise — a small edit
+// distance, to tolerate near-misses from speech-to-text transcription.
+function searchWordsMatch(queryWord, targetWord) {
+  if (queryWord === targetWord) return true;
+  if (queryWord.length < 3 || targetWord.length < 3) return false;
+  if (targetWord.startsWith(queryWord) || queryWord.startsWith(targetWord)) return true;
+  const maxDistance = queryWord.length <= 4 ? 1 : 2;
+  return levenshteinDistance(queryWord, targetWord) <= maxDistance;
+}
+
+// True when every meaningful word in the (voice or typed) search phrase is
+// present in the target text — via synonym, number-word normalization, or a
+// close-enough spelling — rather than requiring an exact substring.
+function matchesDestinationSearch(searchPhrase, targetText) {
+  const queryWords = tokenizeSearchText(searchPhrase).filter((word) => !SEARCH_STOPWORDS.has(word));
+  if (queryWords.length === 0) return true;
+  const targetWords = tokenizeSearchText(targetText);
+  if (targetWords.length === 0) return false;
+
+  return queryWords.every((queryWord) => {
+    const candidates = [queryWord, ...(DESTINATION_SYNONYMS[queryWord] || [])];
+    return candidates.some((candidate) => targetWords.some((targetWord) => searchWordsMatch(candidate, targetWord)));
+  });
+}
+
 function getRouteBounds(points, imageSize) {
   if (!points.length || !imageSize) return null;
 
@@ -97,6 +197,77 @@ function RouteMapSegment({ segment }) {
   );
 }
 
+function DestinationMap({ groups, originNode, originFloor, onSelectDestination }) {
+  const visibleGroups = groups.filter((group) => group.floor?.imagePath);
+  const hasOriginFloor = originNode && visibleGroups.some((group) => group.floorId === originNode.floorId);
+  const mapGroups =
+    originNode && originFloor?.imagePath && !hasOriginFloor
+      ? [{ floorId: originNode.floorId, floor: originFloor, floorName: originFloor.name || 'Current floor', pois: [] }, ...visibleGroups]
+      : visibleGroups;
+
+  if (mapGroups.length === 0) {
+    return <p className="muted">No floor maps are available for these destinations.</p>;
+  }
+
+  return (
+    <div className="destination-map">
+      {mapGroups.map((group) => (
+        <DestinationMapFloor
+          key={group.floorId}
+          group={group}
+          originNode={originNode?.floorId === group.floorId ? originNode : null}
+          onSelectDestination={onSelectDestination}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DestinationMapFloor({ group, originNode, onSelectDestination }) {
+  const [imageSize, setImageSize] = useState(null);
+
+  return (
+    <figure className="destination-map__floor">
+      <figcaption>{group.floorName}</figcaption>
+      <div className="destination-map__viewport">
+        <img
+          src={group.floor.imagePath}
+          alt={`${group.floorName} destination map`}
+          onLoad={(event) => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+        />
+        {imageSize && (
+          <div className="destination-map__overlay">
+            {originNode && (
+              <div
+                className="destination-map__marker destination-map__marker--origin"
+                style={{ left: `${(originNode.x / imageSize.width) * 100}%`, top: `${(originNode.y / imageSize.height) * 100}%` }}
+              >
+                <span>You are here</span>
+              </div>
+            )}
+            {group.pois.map((poi) => {
+              const node = poi.node;
+              if (!node) return null;
+              return (
+                <button
+                  key={poi.id}
+                  type="button"
+                  className="destination-map__marker destination-map__marker--destination"
+                  style={{ left: `${(node.x / imageSize.width) * 100}%`, top: `${(node.y / imageSize.height) * 100}%` }}
+                  onClick={() => onSelectDestination(poi)}
+                  aria-label={`Get directions to ${poi.name}`}
+                >
+                  <span>{poi.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </figure>
+  );
+}
+
 export default function Wayfind() {
   const { buildingId } = useParams();
   const [searchParams] = useSearchParams();
@@ -110,6 +281,7 @@ export default function Wayfind() {
   const [floors, setFloors] = useState(null);
   const [nodes, setNodes] = useState(null);
   const [destinationSearch, setDestinationSearch] = useState('');
+  const [destinationViewMode, setDestinationViewMode] = useState('list');
   const [speechSupported, setSpeechSupported] = useState(false);
   const [speechListening, setSpeechListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
@@ -167,14 +339,14 @@ export default function Wayfind() {
   const destinationGroups = useMemo(() => {
     if (!pois || !floors || !nodes) return [];
 
-    const normalizedSearch = destinationSearch.trim().toLowerCase();
+    const normalizedSearch = destinationSearch.trim();
     const floorById = new Map(floors.map((floor) => [floor.id, floor]));
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const groupsByFloorId = new Map();
 
     for (const poi of pois) {
-      const searchText = `${poi.name || ''} ${poi.description || ''}`.toLowerCase();
-      if (normalizedSearch && !searchText.includes(normalizedSearch)) continue;
+      const searchText = `${poi.name || ''} ${poi.description || ''}`;
+      if (normalizedSearch && !matchesDestinationSearch(normalizedSearch, searchText)) continue;
 
       const node = nodeById.get(poi.nodeId);
       const floorId = node?.floorId || UNKNOWN_FLOOR_ID;
@@ -185,7 +357,7 @@ export default function Wayfind() {
         groupsByFloorId.set(floorId, { floorId, floor, floorName, pois: [] });
       }
 
-      groupsByFloorId.get(floorId).pois.push(poi);
+      groupsByFloorId.get(floorId).pois.push({ ...poi, node });
     }
 
     const originFloorId = originNode?.floorId || null;
@@ -397,8 +569,23 @@ export default function Wayfind() {
               <p className="sr-only" aria-live="polite">
                 {speechListening ? 'Listening for a destination.' : speechError}
               </p>
+              <button
+                type="button"
+                className="wayfind-map-toggle"
+                onClick={() => setDestinationViewMode((mode) => (mode === 'map' ? 'list' : 'map'))}
+                aria-pressed={destinationViewMode === 'map'}
+              >
+                {destinationViewMode === 'map' ? 'Show destination list' : 'Show destination map'}
+              </button>
               {destinationCount === 0 ? (
                 <p className="muted">No destinations match your search.</p>
+              ) : destinationViewMode === 'map' ? (
+                <DestinationMap
+                  groups={destinationGroups}
+                  originNode={originNode}
+                  originFloor={originFloor}
+                  onSelectDestination={handleSelectDestination}
+                />
               ) : (
                 <div className="destination-groups">
                   {destinationGroups.map((group) => (

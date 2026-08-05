@@ -443,6 +443,15 @@ input, select {
   transform-origin: left center;
 }
 
+.wayfind-map-toggle {
+  width: 100%;
+  margin: -4px 0 18px;
+  padding: 10px 12px;
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 600;
+}
+
 .destination-groups {
   display: flex;
   flex-direction: column;
@@ -500,6 +509,109 @@ input, select {
 .destination-button__name {
   color: var(--text-h);
   font-weight: 600;
+}
+
+.destination-map {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.destination-map__floor {
+  margin: 0;
+}
+
+.destination-map__floor figcaption {
+  margin-bottom: 8px;
+  color: var(--text-h);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.destination-map__viewport {
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.destination-map__viewport img {
+  display: block;
+  width: 100%;
+  min-width: 420px;
+  height: auto;
+  opacity: 0.92;
+}
+
+.destination-map__overlay {
+  position: absolute;
+  inset: 0;
+  min-width: 420px;
+}
+
+.destination-map__marker {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -100%);
+}
+
+.destination-map__marker span {
+  display: block;
+  max-width: 150px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  color: var(--gk-navy-dark);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(6, 15, 40, 0.28);
+}
+
+.destination-map__marker::after {
+  content: "";
+  width: 0;
+  height: 0;
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  border: 9px solid transparent;
+  border-bottom: 0;
+  transform: translateX(-50%);
+}
+
+.destination-map__marker--origin {
+  pointer-events: none;
+}
+
+.destination-map__marker--origin span {
+  background: var(--gk-navy);
+  color: #ffffff;
+}
+
+.destination-map__marker--origin::after {
+  border-top-color: var(--gk-navy);
+}
+
+.destination-map__marker--destination {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.destination-map__marker--destination span {
+  background: var(--gk-gold);
+}
+
+.destination-map__marker--destination::after {
+  border-top-color: var(--gk-gold);
+}
+
+.destination-map__marker--destination:hover,
+.destination-map__marker--destination:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .route-map {
