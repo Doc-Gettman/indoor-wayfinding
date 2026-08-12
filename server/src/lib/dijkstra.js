@@ -7,16 +7,29 @@ function isFloorChangeEdge(edge, nodeById) {
   return Boolean(from && to && from.floorId !== to.floorId);
 }
 
-function isBadgeAccessEdge(edge, nodeById) {
+// Badge doors are typically one-directional in real buildings (a reader on
+// the public side, free egress on the secure side). A door with
+// doorBadgeAccessFromNodeIds set only penalizes travel departing from one of
+// those specific neighbors — a door's "public side" can be more than one
+// graph node (e.g. a transition landing and a separate hallway pass-by point
+// that both sit in the same physical lobby). Doors without any configured
+// direction fall back to the old symmetric behavior so existing map data
+// keeps working unchanged.
+function isBadgeAccessEdge(edge, nodeById, fromId, toId) {
   const from = nodeById.get(edge.from);
   const to = nodeById.get(edge.to);
-  return Boolean(
-    edge.requiresBadgeAccess ||
-      from?.transitionRequiresBadgeAccess ||
-      to?.transitionRequiresBadgeAccess ||
-      from?.doorRequiresBadgeAccess ||
-      to?.doorRequiresBadgeAccess
-  );
+  if (edge.requiresBadgeAccess || from?.transitionRequiresBadgeAccess || to?.transitionRequiresBadgeAccess) {
+    return true;
+  }
+
+  const departureNode = nodeById.get(fromId);
+  const arrivalNode = nodeById.get(toId);
+  const door = departureNode?.nodeType === 'door' ? departureNode : arrivalNode?.nodeType === 'door' ? arrivalNode : null;
+  if (door?.doorRequiresBadgeAccess) {
+    if (door.doorBadgeAccessFromNodeIds?.length) return door.doorBadgeAccessFromNodeIds.includes(fromId);
+    return true;
+  }
+  return false;
 }
 
 function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges }) {
@@ -53,7 +66,7 @@ function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChang
     for (const { to, edge } of adjacency.get(currentId)) {
       if (visited.has(to)) continue;
       const floorChangePenalty = isFloorChangeEdge(edge, nodeById) ? FLOOR_CHANGE_PENALTY : 0;
-      const badgeAccessPenalty = isBadgeAccessEdge(edge, nodeById) ? BADGE_ACCESS_PENALTY : 0;
+      const badgeAccessPenalty = isBadgeAccessEdge(edge, nodeById, currentId, to) ? BADGE_ACCESS_PENALTY : 0;
       const candidate = currentDist + edge.weight + floorChangePenalty + badgeAccessPenalty;
       if (candidate < dist.get(to)) {
         dist.set(to, candidate);

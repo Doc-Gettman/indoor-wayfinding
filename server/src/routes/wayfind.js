@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 10;
+const ROUTING_VERSION = 11;
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const WALKING_FEET_PER_SECOND = 3;
 const ELEVATOR_BASE_SECONDS = 45;

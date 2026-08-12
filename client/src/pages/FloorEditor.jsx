@@ -597,6 +597,8 @@ export default function FloorEditor() {
                 poi={poiByNodeId.get(selectedNode.id)}
                 floors={floors}
                 buildingNodes={buildingNodes}
+                buildingEdges={buildingEdges}
+                poiByNodeId={poiByNodeId}
                 buildingId={buildingId}
                 onChanged={refresh}
                 onDeleted={() => {
@@ -1322,7 +1324,7 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, currentFlo
   );
 }
 
-function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, onDeleted, onStartChain }) {
+function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeId, buildingId, onChanged, onDeleted, onStartChain }) {
   const [label, setLabel] = useState(node.label || '');
   const [nodeType, setNodeType] = useState(node.nodeType || 'waypoint');
   const [transitionSubtype, setTransitionSubtype] = useState(node.transitionSubtype || 'elevator');
@@ -1331,6 +1333,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
   const [transitionRequiresBadgeAccess, setTransitionRequiresBadgeAccess] = useState(Boolean(node.transitionRequiresBadgeAccess));
   const [doorDescription, setDoorDescription] = useState(node.doorDescription || '');
   const [doorRequiresBadgeAccess, setDoorRequiresBadgeAccess] = useState(Boolean(node.doorRequiresBadgeAccess));
+  const [doorBadgeAccessFromNodeIds, setDoorBadgeAccessFromNodeIds] = useState(node.doorBadgeAccessFromNodeIds || []);
   const [error, setError] = useState(null);
 
   const [poiName, setPoiName] = useState(poi?.name || '');
@@ -1352,6 +1355,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
         nodeType,
         doorDescription: nodeType === 'door' ? doorDescription : null,
         doorRequiresBadgeAccess: nodeType === 'door' ? doorRequiresBadgeAccess : false,
+        doorBadgeAccessFromNodeIds: nodeType === 'door' && doorRequiresBadgeAccess ? doorBadgeAccessFromNodeIds : [],
       };
       if (nodeType === 'transition') {
         patch.transitionSubtype = transitionSubtype;
@@ -1464,6 +1468,16 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
           <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
             Routes avoid badge-required doors when a reasonable no-badge option exists.
           </p>
+          {doorRequiresBadgeAccess && (
+            <DoorBadgeDirectionPicker
+              node={node}
+              buildingEdges={buildingEdges}
+              buildingNodes={buildingNodes}
+              poiByNodeId={poiByNodeId}
+              value={doorBadgeAccessFromNodeIds}
+              onChange={setDoorBadgeAccessFromNodeIds}
+            />
+          )}
         </>
       )}
 
@@ -1584,6 +1598,57 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingId, onChanged, on
 
       {error && <div className="error">{error}</div>}
     </div>
+  );
+}
+
+// Real badge doors are usually one-directional: a reader on the public
+// side, free egress on the secure side. Lets the admin pick which of this
+// door's current neighbors sit on the public side the badge is required
+// from — a physical "side" can be more than one graph node (e.g. an
+// elevator landing and a separate pass-by waypoint in the same lobby), so
+// this is a multi-select, not a single choice. Leaving every box unchecked
+// keeps the old behavior of gating both directions.
+function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNodeId, value, onChange }) {
+  const nodeById = useMemo(() => new Map(buildingNodes.map((n) => [n.id, n])), [buildingNodes]);
+  const neighbors = useMemo(() => {
+    const ids = (buildingEdges || [])
+      .filter((e) => e.from === node.id || e.to === node.id)
+      .map((e) => (e.from === node.id ? e.to : e.from));
+    return [...new Set(ids)].map((id) => nodeById.get(id)).filter(Boolean);
+  }, [buildingEdges, node.id, nodeById]);
+
+  function toggle(neighborId, checked) {
+    onChange(checked ? [...value, neighborId] : value.filter((id) => id !== neighborId));
+  }
+
+  return (
+    <>
+      <label className="muted">Badge required entering from</label>
+      {neighbors.length === 0 ? (
+        <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+          This door isn't connected to any other point yet.
+        </p>
+      ) : (
+        <ul className="list" style={{ marginTop: 6, marginBottom: 8 }}>
+          {neighbors.map((neighbor) => (
+            <li key={neighbor.id} className="list-item">
+              <label className="row" style={{ gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={value.includes(neighbor.id)}
+                  onChange={(e) => toggle(neighbor.id, e.target.checked)}
+                />
+                <span>{getNodeDisplayLabel(neighbor, poiByNodeId)}</span>
+              </label>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+        Leave everything unchecked unless this door only badges you in from one side. Entering from a checked side
+        requires a badge; walking out an unchecked side is free.
+      </p>
+    </>
   );
 }
 
