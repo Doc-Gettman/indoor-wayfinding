@@ -63,6 +63,16 @@ function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
   return toValue > fromValue ? 'up' : 'down';
 }
 
+// Mirrors dijkstra.js's isBadgeAccessEdge — badge doors are typically
+// one-directional, so a door's description (which usually references the
+// badge requirement) should only be surfaced to the LLM as active when the
+// visitor is actually arriving from the gated side.
+function badgeRequiredForDoorCrossing(door, fromId) {
+  if (!door?.doorRequiresBadgeAccess) return false;
+  if (door.doorBadgeAccessFromNodeIds?.length) return door.doorBadgeAccessFromNodeIds.includes(fromId);
+  return true;
+}
+
 // Finds landmarks that sit near a path segment, and which side of the
 // walker's direction of travel they fall on. Mirrors the POI-annotation
 // geometry in lib/directions.js but returns structured data (for the LLM
@@ -103,6 +113,7 @@ function nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot) 
 
 function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, floorsById, landmarks, destination, origin }) {
   const segments = [];
+  const returnTripBadgeDoors = new Map();
   let previousHeading = null;
 
   for (let i = 0; i < pathEdges.length; i += 1) {
@@ -163,6 +174,9 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     const upcomingDoorIndex = pathNodes.findIndex((node, index) => index > i + 1 && node.nodeType === 'door');
     const upcomingDoor = upcomingDoorIndex === -1 ? null : pathNodes[upcomingDoorIndex];
     const upcomingDoorHeading = upcomingDoor ? bearing(to, upcomingDoor) : null;
+    const upcomingDoorBadgeRequired = upcomingDoor
+      ? badgeRequiredForDoorCrossing(upcomingDoor, pathNodes[upcomingDoorIndex - 1]?.id)
+      : null;
     // Floor editors sometimes leave the "door" edge tool selected while
     // tracing the hallway past a doorway, so a run of edges right after a
     // real door node can be mistyped "door" too. The node itself is the
@@ -170,6 +184,16 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     // edge type against it so a mistyped edge doesn't read to the LLM as a
     // second, nonexistent door.
     const edgeType = to.nodeType === 'door' ? 'door' : edge.type === 'door' ? 'hallway' : edge.type;
+    // Badge doors are typically one-directional (see dijkstra.js's
+    // isBadgeAccessEdge) — only surface the badge requirement to the LLM
+    // when the visitor is actually arriving from the gated side, so it
+    // doesn't tell them they need a badge on the direction that's free.
+    const toDoorBadgeRequired = to.nodeType === 'door' ? badgeRequiredForDoorCrossing(to, from.id) : null;
+    const fromDoorBadgeRequired = from.nodeType === 'door' ? badgeRequiredForDoorCrossing(from, pathNodes[i - 1]?.id) : null;
+    const nextDoorBadgeRequired = nextNode?.nodeType === 'door' ? badgeRequiredForDoorCrossing(nextNode, to.id) : null;
+    if (to.nodeType === 'door' && to.doorRequiresBadgeAccess && !toDoorBadgeRequired) {
+      returnTripBadgeDoors.set(to.id, { label: to.label || 'the door', description: to.doorDescription || null });
+    }
     segments.push({
       type: 'walk',
       floor: floorsById.get(from.floorId)?.name || from.floorId,
@@ -177,9 +201,11 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
       fromLabel: from.label || null,
       fromType: from.nodeType,
       fromDoorDescription: from.nodeType === 'door' ? from.doorDescription || null : null,
+      fromDoorBadgeRequired,
       toLabel: to.label || null,
       toType: to.nodeType,
       toDoorDescription: to.nodeType === 'door' ? to.doorDescription || null : null,
+      toDoorBadgeRequired,
       approxFeet: Math.round(distancePx / pixelsPerFoot),
       directionFromPrevious: relativeDirection(previousHeading, heading),
       directionAfterArrival: nextEdge && to.nodeType !== 'door' ? relativeDirection(heading, nextHeading) : null,
@@ -187,12 +213,14 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
         ? {
             label: upcomingDoor.label || null,
             description: upcomingDoor.doorDescription || null,
+            badgeRequired: upcomingDoorBadgeRequired,
             relativeToArrivalDirection: relativeDirection(heading, upcomingDoorHeading),
           }
         : null,
       nextNodeType: nextNode?.nodeType || null,
       nextNodeLabel: nextNode?.label || null,
       nextDoorDescription: nextNode?.nodeType === 'door' ? nextNode.doorDescription || null : null,
+      nextDoorBadgeRequired,
       nearbyLandmarks: nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot),
     });
     // The very first segment's heading is a straight line from wherever the
@@ -206,6 +234,7 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     origin: origin ? { label: origin.label, nodeType: origin.nodeType, nodeLabel: origin.nodeLabel || null } : null,
     segments,
     destination: { name: destination.name, description: destination.description || null },
+    returnTripBadgeDoors: [...returnTripBadgeDoors.values()],
   };
 }
 
@@ -221,7 +250,7 @@ Guidelines:
 - For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("head down the hallway") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
 - Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" and describe the first segment's distance qualitatively, per the distance guideline above.
-- Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided.
+- Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided, EXCEPT: doors are frequently one-directional badge readers (free to exit, badge required to enter), and each door-related field (toDoorBadgeRequired, fromDoorBadgeRequired, nextDoorBadgeRequired, upcomingDoorAfterArrival.badgeRequired) tells you whether a badge is actually needed for THAT specific crossing. If that field is explicitly false, do not mention a badge even if the door's description references one — badge language only belongs on a crossing where the field is true. Do not add your own note about the return trip needing a badge; that is appended separately.
 - Only describe passing through a door where a segment's fromType or toType is literally "door" in the data. Never invent an extra "next door" or "another door" to narrate a reception desk, glass wall, or open area you're walking past — if there's no door-type node there, describe it as continuing down the hall/space, not as a separate door.
 - When the route exits a named room through a door and upcomingDoorAfterArrival is present, use upcomingDoorAfterArrival.relativeToArrivalDirection as the visible-door cue: "After exiting..., you should see [door] to your [side] (about [clock]). Go through that door." Prefer this over directionAfterArrival for that exit.
 - Treat the first door immediately after the origin as the exit from that room; say "exit through..." or "leave through..." rather than describing it as a separate object off to the side.
@@ -271,6 +300,20 @@ export async function generateLLMDirections(input) {
     if (!textBlock) return null;
     const parsed = JSON.parse(textBlock.text);
     if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) return null;
+
+    // Appended deterministically rather than left to the model, since this
+    // is a security-relevant statement the prompt shouldn't be trusted to
+    // get right every time.
+    if (description.returnTripBadgeDoors.length) {
+      const originName = input.origin?.nodeLabel || input.origin?.label || 'your starting point';
+      const doorPhrase = description.returnTripBadgeDoors
+        .map((door) => (door.description ? `${door.label} (${door.description})` : door.label))
+        .join(' and ');
+      parsed.steps.push(
+        `Note: if you return to ${originName} using this same route, you'll need a badge to get back through ${doorPhrase}.`
+      );
+    }
+
     return parsed.steps;
   } catch (err) {
     console.error('LLM direction generation failed, falling back to rule-based directions:', err.message);

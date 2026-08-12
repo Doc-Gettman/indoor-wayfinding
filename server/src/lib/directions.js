@@ -82,9 +82,23 @@ function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
   return toValue > fromValue ? 'up' : 'down';
 }
 
+function doorName(node) {
+  return node.label || 'the door';
+}
+
 function doorText(node) {
-  const name = node.label || 'the door';
+  const name = doorName(node);
   return node.doorDescription ? `${name} (${node.doorDescription})` : name;
+}
+
+// Badge doors are typically one-directional (see dijkstra.js's
+// isBadgeAccessEdge) — a badge is only actually needed when arriving from
+// the configured "public" side. Mirrors that check so the narration doesn't
+// tell a visitor they need a badge on the direction that's actually free.
+function badgeRequiredForDoorCrossing(door, fromId) {
+  if (!door?.doorRequiresBadgeAccess) return false;
+  if (door.doorBadgeAccessFromNodeIds?.length) return door.doorBadgeAccessFromNodeIds.includes(fromId);
+  return true;
 }
 
 function mapExitDirection(from, to) {
@@ -162,6 +176,7 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
     .filter((p) => p.node);
 
   const instructions = [];
+  const freeBadgeDoorsCrossed = [];
   let segment = null; // { label, side, pixels, floorId, exitContext }
   let prevHeading = null;
   let pendingExitContext = null;
@@ -270,12 +285,20 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
 
     if (to.nodeType === 'door') {
       flushSegment();
+      // A door requiring a badge only in the other direction reads as
+      // free from here — don't attach its (likely badge-related) description
+      // to an instruction where no badge is actually needed.
+      const badgeNeededThisWay = badgeRequiredForDoorCrossing(to, from.id);
+      const text = badgeNeededThisWay || !to.doorRequiresBadgeAccess ? doorText(to) : doorName(to);
+      if (to.doorRequiresBadgeAccess && !badgeNeededThisWay) {
+        freeBadgeDoorsCrossed.push(to);
+      }
       const next = pathNodes[i + 2];
       if (next) {
         const nextDiff = normalizeAngleDiff(bearing(to, next) - heading);
-        instructions.push(`Open ${doorText(to)}, then ${directionCue(nextDiff)}`);
+        instructions.push(`Open ${text}, then ${directionCue(nextDiff)}`);
       } else {
-        instructions.push(`Open ${doorText(to)}`);
+        instructions.push(`Open ${text}`);
       }
       prevHeading = null;
     }
@@ -288,6 +311,15 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
     instructions.push(`You have arrived at ${destination.name}`);
   } else {
     instructions.push('You have arrived at your destination');
+  }
+
+  if (freeBadgeDoorsCrossed.length) {
+    const origin = poiByNodeId.get(pathNodes[0].id);
+    const originName = origin?.name || pathNodes[0].label || 'your starting point';
+    const doorPhrase = freeBadgeDoorsCrossed.map((door) => doorText(door)).join(' and ');
+    instructions.push(
+      `Note: if you return to ${originName} using this same route, you'll need a badge to get back through ${doorPhrase}.`
+    );
   }
 
   return instructions;
