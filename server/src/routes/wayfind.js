@@ -61,11 +61,28 @@ function estimateTravelSeconds(pathNodes, pathEdges, floorsById) {
 }
 
 function travelTimeText(seconds) {
-  if (seconds < 60) {
-    return 'Estimated travel time: it just takes a few seconds.';
+  if (seconds < 15) {
+    return 'Estimated travel time: just a few seconds.';
   }
-  const minutes = Math.round(seconds / 60);
-  return `Estimated travel time: about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+  if (seconds <= 60) {
+    const roundedSeconds = Math.round(seconds / 10) * 10;
+    if (roundedSeconds < 60) {
+      return `Estimated travel time: about ${roundedSeconds} seconds.`;
+    }
+    // Falls through to "about a minute" below rather than saying "60 seconds".
+  }
+  // Round to the nearest half-minute so longer trips still read as a round,
+  // spoken-out-loud number ("a minute and a half") instead of exact seconds.
+  const halfMinutes = Math.max(2, Math.round(seconds / 30));
+  const minutes = Math.floor(halfMinutes / 2);
+  const hasHalf = halfMinutes % 2 === 1;
+  let phrase;
+  if (minutes === 1) {
+    phrase = hasHalf ? 'a minute and a half' : 'a minute';
+  } else {
+    phrase = hasHalf ? `${minutes} and a half minutes` : `${minutes} minutes`;
+  }
+  return `Estimated travel time: about ${phrase}.`;
 }
 
 function buildRouteMap(pathNodes, floorsById) {
