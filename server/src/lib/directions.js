@@ -29,9 +29,34 @@ function clockDirection(diff) {
 }
 
 function distanceText(pixels, pixelsPerFoot) {
-  const feet = Math.round((pixels / pixelsPerFoot) / 5) * 5;
-  if (feet <= 0) return null;
-  return `approximately ${feet} feet`;
+  const feet = pixels / pixelsPerFoot;
+  if (feet < 3) return null;
+  if (feet < 12) return 'a few steps';
+  if (feet < 28) return 'just down the hall';
+  if (feet < 60) return 'a little way down the hall';
+  if (feet < 110) return 'toward the far end of the hallway';
+  return 'quite a way down the hall';
+}
+
+function continueText(distance) {
+  return distance ? `continue ${distance}` : 'continue ahead';
+}
+
+function straightText(distance) {
+  return distance ? `Head straight ahead, ${distance}` : 'Head straight ahead';
+}
+
+function turnText(label, side) {
+  if (label === 'slight') return `Bear ${side}`;
+  if (label === 'sharp') return `Make a sharp ${side}`;
+  return `Turn ${side}`;
+}
+
+function directionCue(diff) {
+  const turn = classifyTurn(diff);
+  if (turn.label === 'straight') return 'continue ahead';
+  if (turn.label === 'u-turn') return 'turn around';
+  return turnText(turn.label, turn.side).toLowerCase();
 }
 
 function floorLabel(floor) {
@@ -58,7 +83,8 @@ function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
 }
 
 function doorText(node) {
-  return node.doorDescription || node.label || 'the door';
+  const name = node.label || 'the door';
+  return node.doorDescription ? `${name} (${node.doorDescription})` : name;
 }
 
 function mapExitDirection(from, to) {
@@ -150,22 +176,22 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       // turn we can't back up, since the app doesn't know which car the
       // visitor rode or which way they're facing.
       if (segment.exitContext.exitOptionsCount <= 1) {
-        text = dist ? `Head the only way you can, ${dist}` : 'Head the only way you can from here';
+        text = dist ? `Head the only way you can and ${continueText(dist)}` : 'Head the only way you can from here';
       } else if (
         segment.exitContext.requiredExitInstruction
       ) {
         text = dist
-          ? `${segment.exitContext.requiredExitInstruction}, then continue for ${dist}`
+          ? `${segment.exitContext.requiredExitInstruction}, then ${continueText(dist)}`
           : segment.exitContext.requiredExitInstruction;
       } else {
-        text = dist ? `Continue from the landing for ${dist}` : 'Continue from the landing';
+        text = dist ? `Continue from the landing and ${continueText(dist)}` : 'Continue from the landing';
       }
     } else if (segment.label === 'straight') {
-      text = dist ? `Walk straight ahead for ${dist}` : 'Walk straight ahead';
+      text = straightText(dist);
     } else if (segment.label === 'u-turn') {
       text = 'Make a U-turn';
     } else {
-      text = `Make a ${segment.label} ${segment.side}${dist ? `, then continue for ${dist}` : ''}`;
+      text = `${turnText(segment.label, segment.side)}${dist ? `, then ${continueText(dist)}` : ''}`;
     }
     if (segment.annotations.length) {
       text += `. ${segment.annotations.join('. ')}`;
@@ -247,7 +273,7 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       const next = pathNodes[i + 2];
       if (next) {
         const nextDiff = normalizeAngleDiff(bearing(to, next) - heading);
-        instructions.push(`Open ${doorText(to)}, then head toward ${clockDirection(nextDiff)} o'clock`);
+        instructions.push(`Open ${doorText(to)}, then ${directionCue(nextDiff)}`);
       } else {
         instructions.push(`Open ${doorText(to)}`);
       }
