@@ -11,8 +11,15 @@ function refEquals(a, b) {
 
 function getNodeDisplayLabel(node, poiByNodeId) {
   if (!node) return '';
-  return poiByNodeId.get(node.id)?.name || (node.nodeType === 'door' ? node.doorDescription : null) || node.label || node.id;
+  return (
+    poiByNodeId.get(node.id)?.name ||
+    (node.nodeType === 'door' ? node.doorDescription : null) ||
+    node.label ||
+    `Unlabeled point (${Math.round(node.x)}, ${Math.round(node.y)})`
+  );
 }
+
+const EMPTY_EDGE_ID_SET = new Set();
 
 export default function FloorEditor() {
   const { buildingId, floorId } = useParams();
@@ -37,6 +44,8 @@ export default function FloorEditor() {
   const [qrOriginNodeId, setQrOriginNodeId] = useState('');
   const [qrLabel, setQrLabel] = useState('');
   const [highlightedQrId, setHighlightedQrId] = useState(null);
+  const [highlightedEdgeIds, setHighlightedEdgeIds] = useState(EMPTY_EDGE_ID_SET);
+  const [showEdgeList, setShowEdgeList] = useState(false);
 
   const [seedAnchor, setSeedAnchor] = useState(null);
   const [chainAnchor, setChainAnchor] = useState(null);
@@ -502,7 +511,7 @@ export default function FloorEditor() {
           </div>
         </>
       ) : (
-        <div className="floor-editor-layout">
+        <div className={`floor-editor-layout${showEdgeList ? ' floor-editor-layout--with-edge-list' : ''}`}>
           <div className="floor-editor-sidebar floor-editor-sidebar--left">
             <div className="breadcrumbs">
               <Link to="/admin/buildings">Buildings</Link> / <Link to={`/admin/buildings/${buildingId}`}>{building.name}</Link> /{' '}
@@ -606,6 +615,7 @@ export default function FloorEditor() {
                   refresh();
                 }}
                 onStartChain={() => handleStartChainFromNode(selectedNode.id)}
+                onHighlightEdges={setHighlightedEdgeIds}
               />
             ) : selectedEdge ? (
               <EdgePanel
@@ -626,6 +636,12 @@ export default function FloorEditor() {
           </div>
 
           <div className="map-panel floor-editor-map">
+            <div className="floor-editor-map-toolbar">
+              <button type="button" onClick={() => setShowEdgeList((current) => !current)}>
+                {showEdgeList ? 'Hide edge list' : 'Show edge list'}
+              </button>
+            </div>
+
             <FloorCanvas
               imageUrl={floor.imagePath}
               nodes={floorCanvasNodes}
@@ -633,6 +649,7 @@ export default function FloorEditor() {
               poiNodeIds={poiNodeIds}
               qrNodeIds={qrNodeIds}
               selectedEdgeId={selectedEdgeId}
+              highlightedEdgeIds={highlightedEdgeIds}
               selectedNodeId={
                 mode === 'qr'
                   ? highlightedQrNodeId || qrOriginNodeId
@@ -702,15 +719,17 @@ export default function FloorEditor() {
             )}
           </div>
 
-          <EdgeListPanel
-            edges={floorEdges}
-            selectedEdgeId={selectedEdgeId}
-            selectedEdgeIndex={selectedFloorEdgeIndex}
-            selectedEdgeRowRef={selectedEdgeRowRef}
-            onSelectEdge={handleSelectEdge}
-            onSelectEdgeByIndex={handleSelectEdgeByIndex}
-            onDeleteEdge={handleDeleteEdge}
-          />
+          {showEdgeList && (
+            <EdgeListPanel
+              edges={floorEdges}
+              selectedEdgeId={selectedEdgeId}
+              selectedEdgeIndex={selectedFloorEdgeIndex}
+              selectedEdgeRowRef={selectedEdgeRowRef}
+              onSelectEdge={handleSelectEdge}
+              onSelectEdgeByIndex={handleSelectEdgeByIndex}
+              onDeleteEdge={handleDeleteEdge}
+            />
+          )}
         </div>
       )}
     </div>
@@ -1324,7 +1343,7 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, currentFlo
   );
 }
 
-function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeId, buildingId, onChanged, onDeleted, onStartChain }) {
+function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeId, buildingId, onChanged, onDeleted, onStartChain, onHighlightEdges }) {
   const [label, setLabel] = useState(node.label || '');
   const [nodeType, setNodeType] = useState(node.nodeType || 'waypoint');
   const [transitionSubtype, setTransitionSubtype] = useState(node.transitionSubtype || 'elevator');
@@ -1476,6 +1495,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
               poiByNodeId={poiByNodeId}
               value={doorBadgeAccessFromNodeIds}
               onChange={setDoorBadgeAccessFromNodeIds}
+              onHighlightEdges={onHighlightEdges}
             />
           )}
         </>
@@ -1608,14 +1628,27 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
 // elevator landing and a separate pass-by waypoint in the same lobby), so
 // this is a multi-select, not a single choice. Leaving every box unchecked
 // keeps the old behavior of gating both directions.
-function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNodeId, value, onChange }) {
+function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNodeId, value, onChange, onHighlightEdges }) {
   const nodeById = useMemo(() => new Map(buildingNodes.map((n) => [n.id, n])), [buildingNodes]);
+  // Neighbors are often unlabeled waypoints (just a name like "Unlabeled
+  // point (x, y)" to go on), so the only reliable way to tell which
+  // checkbox is which physical connection is to highlight its edge on the
+  // map — track each neighbor's edge id alongside the neighbor itself.
   const neighbors = useMemo(() => {
-    const ids = (buildingEdges || [])
-      .filter((e) => e.from === node.id || e.to === node.id)
-      .map((e) => (e.from === node.id ? e.to : e.from));
-    return [...new Set(ids)].map((id) => nodeById.get(id)).filter(Boolean);
+    const seen = new Map();
+    for (const edge of buildingEdges || []) {
+      if (edge.from !== node.id && edge.to !== node.id) continue;
+      const neighborId = edge.from === node.id ? edge.to : edge.from;
+      if (!seen.has(neighborId)) seen.set(neighborId, edge.id);
+    }
+    return [...seen.entries()].map(([id, edgeId]) => ({ node: nodeById.get(id), edgeId })).filter((n) => n.node);
   }, [buildingEdges, node.id, nodeById]);
+
+  useEffect(() => {
+    const edgeIds = neighbors.filter((n) => value.includes(n.node.id)).map((n) => n.edgeId);
+    onHighlightEdges?.(new Set(edgeIds));
+    return () => onHighlightEdges?.(EMPTY_EDGE_ID_SET);
+  }, [neighbors, value, onHighlightEdges]);
 
   function toggle(neighborId, checked) {
     onChange(checked ? [...value, neighborId] : value.filter((id) => id !== neighborId));
@@ -1630,7 +1663,7 @@ function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNod
         </p>
       ) : (
         <ul className="list" style={{ marginTop: 6, marginBottom: 8 }}>
-          {neighbors.map((neighbor) => (
+          {neighbors.map(({ node: neighbor }) => (
             <li key={neighbor.id} className="list-item">
               <label className="row" style={{ gap: 6 }}>
                 <input
@@ -1645,7 +1678,8 @@ function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNod
         </ul>
       )}
       <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
-        Leave everything unchecked unless this door only badges you in from one side. Entering from a checked side
+        Checked boxes highlight their edge on the map in yellow. Leave everything unchecked unless this door only
+        badges you in from one side. Entering from a checked side
         requires a badge; walking out an unchecked side is free.
       </p>
     </>

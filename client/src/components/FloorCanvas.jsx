@@ -50,6 +50,7 @@ export default function FloorCanvas({
   qrNodeIds = new Set(),
   selectedNodeId,
   selectedEdgeId,
+  highlightedEdgeIds,
   draftPoints = [],
   draftEdges = [],
   selectedDraftId,
@@ -443,6 +444,7 @@ export default function FloorCanvas({
                 const from = nodeById.get(edge.from);
                 const to = nodeById.get(edge.to);
                 const isSelected = edge.id === selectedEdgeId;
+                const isHighlighted = !isSelected && highlightedEdgeIds?.has(edge.id);
                 if (!from || !to) return null;
                 return (
                   <g
@@ -467,8 +469,8 @@ export default function FloorCanvas({
                       y1={from.y}
                       x2={to.x}
                       y2={to.y}
-                      stroke={isSelected ? '#f97316' : '#4b5563'}
-                      strokeWidth={isSelected ? screenPx(7, zoom) : edgeStrokeWidth}
+                      stroke={isSelected ? '#f97316' : isHighlighted ? '#eab308' : '#4b5563'}
+                      strokeWidth={isSelected || isHighlighted ? screenPx(7, zoom) : edgeStrokeWidth}
                       strokeLinecap="round"
                     />
                   </g>
