@@ -87,15 +87,31 @@ export default function FloorCanvas({
     setSize({ width: e.target.naturalWidth, height: e.target.naturalHeight });
   }
 
+  // Reads the container's actual current size from the DOM rather than the
+  // viewportSize state, which only updates when ResizeObserver's callback
+  // fires. That callback is reliable for reacting to later size changes, but
+  // this function is also called directly from click handlers (Reset view,
+  // zoom buttons) where we want whatever the container's real size is right
+  // now — if the state ever lagged behind (e.g. a layout that settles after
+  // the observer's initial read), reading it live means those buttons still
+  // work instead of silently no-op'ing against a stale {0, 0}.
+  function getLiveViewportSize() {
+    const container = scrollRef.current;
+    if (!container) return { width: 0, height: 0 };
+    return { width: container.clientWidth, height: container.clientHeight };
+  }
+
   function fitToImageExtent() {
     const container = scrollRef.current;
-    if (!container || !size || viewportSize.width === 0 || viewportSize.height === 0) return false;
+    if (!container || !size) return false;
+    const live = getLiveViewportSize();
+    if (live.width === 0 || live.height === 0) return false;
 
-    const fitWidth = viewportSize.width / size.width;
-    const fitHeight = viewportSize.height / size.height;
+    const fitWidth = live.width / size.width;
+    const fitHeight = live.height / size.height;
     const fitZoom = clampZoom(Math.min(fitWidth, fitHeight, 1));
-    const paddingX = viewportSize.width * PAN_PADDING_FACTOR;
-    const paddingY = viewportSize.height * PAN_PADDING_FACTOR;
+    const paddingX = live.width * PAN_PADDING_FACTOR;
+    const paddingY = live.height * PAN_PADDING_FACTOR;
     setZoom(fitZoom);
     setPendingScroll({ left: paddingX, top: paddingY });
     return true;
@@ -144,24 +160,27 @@ export default function FloorCanvas({
   // the list, rather than requiring the admin to hunt for it manually.
   function centerOnPoint(x, y, targetZoom) {
     const el = scrollRef.current;
-    if (!el || viewportSize.width === 0 || viewportSize.height === 0) return;
+    if (!el) return;
+    const live = getLiveViewportSize();
+    if (live.width === 0 || live.height === 0) return;
     const newZoom = clampZoom(targetZoom);
-    const paddingX = viewportSize.width * PAN_PADDING_FACTOR;
-    const paddingY = viewportSize.height * PAN_PADDING_FACTOR;
+    const paddingX = live.width * PAN_PADDING_FACTOR;
+    const paddingY = live.height * PAN_PADDING_FACTOR;
     setZoom(newZoom);
     setPendingScroll({
-      left: paddingX + x * newZoom - viewportSize.width / 2,
-      top: paddingY + y * newZoom - viewportSize.height / 2,
+      left: paddingX + x * newZoom - live.width / 2,
+      top: paddingY + y * newZoom - live.height / 2,
     });
   }
 
   function centerOnEdge(from, to) {
-    if (viewportSize.width === 0 || viewportSize.height === 0) return;
+    const live = getLiveViewportSize();
+    if (live.width === 0 || live.height === 0) return;
     const width = Math.abs(to.x - from.x);
     const height = Math.abs(to.y - from.y);
     const paddedWidth = width + EDGE_FOCUS_PADDING_PX;
     const paddedHeight = height + EDGE_FOCUS_PADDING_PX;
-    const fitZoom = Math.min(viewportSize.width / paddedWidth, viewportSize.height / paddedHeight);
+    const fitZoom = Math.min(live.width / paddedWidth, live.height / paddedHeight);
     const targetZoom = clampZoom(Math.min(EDGE_FOCUS_MAX_ZOOM, fitZoom));
     centerOnPoint((from.x + to.x) / 2, (from.y + to.y) / 2, targetZoom);
   }
