@@ -63,25 +63,6 @@ function floorLabel(floor) {
   return floor?.name || floor?.id || 'the destination floor';
 }
 
-function floorSortValue(floor, fallbackId) {
-  const raw = String(floor?.sortOrder ?? floor?.level ?? floor?.name ?? fallbackId ?? '');
-  const lower = raw.toLowerCase();
-  const match = lower.match(/-?\d+(\.\d+)?/);
-  if (match) {
-    const value = Number(match[0]);
-    return lower.includes('basement') || lower.startsWith('b') ? -Math.abs(value) : value;
-  }
-  if (lower.includes('ground') || lower.includes('lobby')) return 0;
-  return null;
-}
-
-function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
-  const fromValue = floorSortValue(fromFloor, fromFloorId);
-  const toValue = floorSortValue(toFloor, toFloorId);
-  if (fromValue === null || toValue === null || fromValue === toValue) return null;
-  return toValue > fromValue ? 'up' : 'down';
-}
-
 function doorName(node) {
   return node.label || 'the door';
 }
@@ -224,12 +205,10 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       flushSegment();
       prevHeading = null;
       const destFloor = floorsById.get(to.floorId);
-      const originFloor = floorsById.get(from.floorId);
       const vehicle = edge.type === 'elevator' ? 'elevator' : 'stairs';
       const groupName = to.transitionGroupName || from.transitionGroupName || null;
-      const travelDirection = floorTravelDirection(originFloor, destFloor, from.floorId, to.floorId);
       instructions.push(
-        `Take ${groupName ? `one of the ${groupName}` : `the ${vehicle}`} ${travelDirection ? `${travelDirection} ` : ''}to ${floorLabel(destFloor)}`
+        `Take ${groupName ? `one of the ${groupName}` : `the ${vehicle}`} to ${floorLabel(destFloor)}`
       );
       const exitPoi = poiByNodeId.get(to.id);
       instructions.push(`Exit the ${vehicle}${exitPoi ? ` near ${exitPoi.name}` : ''}`);

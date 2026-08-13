@@ -44,25 +44,6 @@ function mapExitDirection(from, to) {
   return dy < 0 ? 'up' : 'down';
 }
 
-function floorSortValue(floor, fallbackId) {
-  const raw = String(floor?.sortOrder ?? floor?.level ?? floor?.name ?? fallbackId ?? '');
-  const lower = raw.toLowerCase();
-  const match = lower.match(/-?\d+(\.\d+)?/);
-  if (match) {
-    const value = Number(match[0]);
-    return lower.includes('basement') || lower.startsWith('b') ? -Math.abs(value) : value;
-  }
-  if (lower.includes('ground') || lower.includes('lobby')) return 0;
-  return null;
-}
-
-function floorTravelDirection(fromFloor, toFloor, fromFloorId, toFloorId) {
-  const fromValue = floorSortValue(fromFloor, fromFloorId);
-  const toValue = floorSortValue(toFloor, toFloorId);
-  if (fromValue === null || toValue === null || fromValue === toValue) return null;
-  return toValue > fromValue ? 'up' : 'down';
-}
-
 // Mirrors dijkstra.js's isBadgeAccessEdge — badge doors are typically
 // one-directional, so a door's description (which usually references the
 // badge requirement) should only be surfaced to the LLM as active when the
@@ -153,7 +134,6 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
         vehicle: edge.type,
         fromFloor: fromFloor?.name || from.floorId,
         toFloor: toFloor?.name || to.floorId,
-        travelDirection: floorTravelDirection(fromFloor, toFloor, from.floorId, to.floorId),
         groupName: to.transitionGroupName || from.transitionGroupName || null,
         exitLabel: to.label || null,
         arrivalOrientationUnknown: true,
@@ -245,7 +225,7 @@ Guidelines:
 - Use directionFromPrevious and directionAfterArrival to articulate relative orientation when helpful, including clock directions like "to your right, about 2 o'clock". Prefer these over vague "continue straight" language after exiting a room or door.
 - Avoid stating precise distances in feet (e.g. "15 feet", "34 feet down") — describe distance qualitatively instead, based on approxFeet: short segments as "just down the hall" / "right past" / "a few steps", medium segments as "a little way down the corridor" / "partway down the hall", long segments as "quite a way down" / "toward the far end of the hallway". Only give a rounded, approximate number of feet ("about 50 feet or so") for unusually long stretches with no landmark and no natural qualitative phrase that fits — and even then, treat it as a last resort, not the default.
 - Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
-- Describe elevator/stairs segments with the provided travelDirection when present: "Take the elevator/stairs up to the Nth floor" or "Take the elevator/stairs down to the Nth floor." If travelDirection is "up", never say "down" for that segment; if travelDirection is "down", never say "up" for that segment. If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 up to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
+- Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor" — do not say "up" or "down"; toFloor's own name/number already says where it goes. If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
 - A transition segment's arrivalOrientationUnknown only makes left/right ambiguous when exitOrientationAmbiguous is true, which means the same elevator/stair group has landings on both sides of that floor's hall. If requiredExitInstruction is present, include that exact phrase as the first movement after exiting; do not replace it with vague route-shape language. If exitOrientationAmbiguous is false and routeExitDirection is "left" or "right", say "turn left" or "turn right" instead of wording like "head toward the hallway leading to [destination]" or "take the route down and around". If exitOrientationAmbiguous is true, avoid left/right for the first movement after arrival and disambiguate using exitLabel, routeExitLabel, or nearby landmarks. If exitOptionsCount is 0 or 1, say there is only one way to go.
 - For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("head down the hallway") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
