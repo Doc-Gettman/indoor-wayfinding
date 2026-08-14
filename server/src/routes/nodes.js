@@ -47,8 +47,11 @@ nodesRouter.post('/', requireAdmin, async (req, res) => {
   await saveCollection(req.params.buildingId, 'nodes', nodes);
 
   if (node.nodeType === 'transition' && node.transitionGroupId) {
-    const edges = await getCollection(req.params.buildingId, 'edges');
-    const updated = syncTransitionEdges(nodes, edges, node);
+    const [edges, floors] = await Promise.all([
+      getCollection(req.params.buildingId, 'edges'),
+      getCollection(req.params.buildingId, 'floors'),
+    ]);
+    const updated = syncTransitionEdges(nodes, edges, node, new Map(floors.map((f) => [f.id, f])));
     await saveCollection(req.params.buildingId, 'edges', updated);
   }
 
@@ -70,8 +73,11 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
   await saveCollection(req.params.buildingId, 'nodes', nodes);
 
   if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId) {
-    const edges = await getCollection(req.params.buildingId, 'edges');
-    const updated = syncTransitionEdges(nodes, edges, nodes[index]);
+    const [edges, floors] = await Promise.all([
+      getCollection(req.params.buildingId, 'edges'),
+      getCollection(req.params.buildingId, 'floors'),
+    ]);
+    const updated = syncTransitionEdges(nodes, edges, nodes[index], new Map(floors.map((f) => [f.id, f])));
     await saveCollection(req.params.buildingId, 'edges', updated);
   }
 

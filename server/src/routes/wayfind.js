@@ -15,15 +15,41 @@ const ELEVATOR_SECONDS_PER_FLOOR = 8;
 const STAIRS_BASE_SECONDS = 20;
 const STAIRS_SECONDS_PER_FLOOR = 18;
 
+const ORDINAL_ONES = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9 };
+const ORDINAL_TEENS = {
+  tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14,
+  fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19,
+};
+const ORDINAL_TENS = { twentieth: 20, thirtieth: 30, fortieth: 40, fiftieth: 50, sixtieth: 60, seventieth: 70, eightieth: 80, ninetieth: 90 };
+const CARDINAL_TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+
+// Handles floor names that spell the ordinal out ("Twelfth Floor",
+// "Twenty-Third Floor") instead of using a digit ("12th Floor") — common
+// enough in real building signage that the digit regex below alone misses a
+// building's entire floor set.
+function parseOrdinalWords(text) {
+  const words = text.replace(/-/g, ' ').split(/\s+/).filter(Boolean);
+  for (let i = 0; i < words.length; i += 1) {
+    const word = words[i];
+    if (word in ORDINAL_ONES) return ORDINAL_ONES[word];
+    if (word in ORDINAL_TEENS) return ORDINAL_TEENS[word];
+    if (word in ORDINAL_TENS) return ORDINAL_TENS[word];
+    if (word in CARDINAL_TENS && words[i + 1] in ORDINAL_ONES) return CARDINAL_TENS[word] + ORDINAL_ONES[words[i + 1]];
+  }
+  return null;
+}
+
 function floorSortValue(floor, fallbackId) {
   const raw = String(floor?.sortOrder ?? floor?.level ?? floor?.name ?? fallbackId ?? '');
   const lower = raw.toLowerCase();
+  if (lower.includes('ground') || lower.includes('lobby')) return 0;
   const match = lower.match(/-?\d+(\.\d+)?/);
   if (match) {
     const value = Number(match[0]);
     return lower.includes('basement') || lower.startsWith('b') ? -Math.abs(value) : value;
   }
-  if (lower.includes('ground') || lower.includes('lobby')) return 0;
+  const ordinal = parseOrdinalWords(lower);
+  if (ordinal !== null) return lower.includes('basement') ? -ordinal : ordinal;
   return null;
 }
 
@@ -135,10 +161,10 @@ wayfindRouter.get('/', async (req, res) => {
   const originQrCode = qrcodes.find((qr) => qr.originNodeId === from) || null;
   const originNode = nodes.find((node) => node.id === from) || null;
 
-  const result = findShortestPath(nodes, edges, from, destinationPoi.nodeId);
-  if (!result) return res.status(404).json({ error: 'No route found between the given locations' });
-
   const floorsById = new Map(floors.map((f) => [f.id, f]));
+
+  const result = findShortestPath(nodes, edges, from, destinationPoi.nodeId, floorsById);
+  if (!result) return res.status(404).json({ error: 'No route found between the given locations' });
 
   const llmInstructions = await generateLLMDirections({
     pathNodes: result.nodes,
