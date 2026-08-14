@@ -15,6 +15,13 @@ function isFloorChangeEdge(edge, nodeById) {
 // that both sit in the same physical lobby). Doors without any configured
 // direction fall back to the old symmetric behavior so existing map data
 // keeps working unchanged.
+//
+// Only the door being ENTERED (the arrival node of this hop) can charge —
+// never the one just departed. A door node sits between two edges (the walk
+// up to it and the walk away from it); checking both endpoints would charge
+// a single crossing twice, which in practice made an unconfigured
+// (symmetric) door cost double what a directionally-configured one does,
+// enough to make the router take absurd detours just to dodge it.
 function isBadgeAccessEdge(edge, nodeById, fromId, toId) {
   const from = nodeById.get(edge.from);
   const to = nodeById.get(edge.to);
@@ -22,14 +29,10 @@ function isBadgeAccessEdge(edge, nodeById, fromId, toId) {
     return true;
   }
 
-  const departureNode = nodeById.get(fromId);
   const arrivalNode = nodeById.get(toId);
-  const door = departureNode?.nodeType === 'door' ? departureNode : arrivalNode?.nodeType === 'door' ? arrivalNode : null;
-  if (door?.doorRequiresBadgeAccess) {
-    if (door.doorBadgeAccessFromNodeIds?.length) return door.doorBadgeAccessFromNodeIds.includes(fromId);
-    return true;
-  }
-  return false;
+  if (arrivalNode?.nodeType !== 'door' || !arrivalNode.doorRequiresBadgeAccess) return false;
+  if (arrivalNode.doorBadgeAccessFromNodeIds?.length) return arrivalNode.doorBadgeAccessFromNodeIds.includes(fromId);
+  return true;
 }
 
 function solveShortestPath(nodes, edges, fromNodeId, toNodeId, { allowFloorChanges }) {
