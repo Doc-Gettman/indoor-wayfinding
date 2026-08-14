@@ -12,10 +12,16 @@ floorsRouter.get('/', async (req, res) => {
 });
 
 floorsRouter.post('/', requireAdmin, async (req, res) => {
-  const { name, pixelsPerFoot } = req.body || {};
+  const { name, pixelsPerFoot, sortOrder } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name is required' });
   const floors = await getCollection(req.params.buildingId, 'floors');
-  const floor = { id: nextId('floor'), name, pixelsPerFoot: pixelsPerFoot || null, imagePath: null };
+  const floor = {
+    id: nextId('floor'),
+    name,
+    pixelsPerFoot: pixelsPerFoot || null,
+    imagePath: null,
+    sortOrder: sortOrder === undefined || sortOrder === null || sortOrder === '' ? null : Number(sortOrder),
+  };
   floors.push(floor);
   await saveCollection(req.params.buildingId, 'floors', floors);
   res.status(201).json(floor);
