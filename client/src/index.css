@@ -291,7 +291,7 @@ input, select {
 
 .floor-canvas__viewport {
   flex: 1;
-  min-height: 75vh;
+  max-height: 75vh;
 }
 
 .edge-list-panel {
