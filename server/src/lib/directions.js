@@ -91,31 +91,60 @@ function mapExitDirection(from, to) {
   return dy < 0 ? 'up' : 'down';
 }
 
-function nearbyLandmarksForSegment(from, to, landmarks, pixelsPerFoot) {
+// Shortest distance from a point to the segment (clamped to its endpoints,
+// not the infinite line through it) — used both to gate visibility and to
+// pick which of two adjoining segments a corner-hugging landmark belongs to.
+function distanceToSegment(from, to, point) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const lengthSq = dx * dx + dy * dy;
-  if (lengthSq === 0) return [];
+  if (lengthSq === 0) return Math.hypot(point.x - from.x, point.y - from.y);
+  const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSq));
+  return Math.hypot(point.x - (from.x + t * dx), point.y - (from.y + t * dy));
+}
 
-  const annotations = [];
+// A landmark near a bend in the path can sit close to two consecutive
+// segments' lines at once. Assigning it independently per segment (via a
+// fixed projection window) can attach it to an earlier, farther segment
+// while missing the later one it's actually right next to — so instead this
+// picks the single closest segment for each landmark across the whole path.
+function assignLandmarksToClosestSegment(pathNodes, pathEdges, landmarks, floorsById) {
+  const bestBySegment = new Map(); // segmentIndex -> Set<landmarkId>
+  const best = new Map(); // landmarkId -> distance
+  for (let i = 0; i < pathEdges.length; i += 1) {
+    const edge = pathEdges[i];
+    const from = pathNodes[i];
+    const to = pathNodes[i + 1];
+    if ((edge.type === 'elevator' || edge.type === 'stairs') && from.floorId !== to.floorId) continue;
+    const pixelsPerFoot = floorsById.get(from.floorId)?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
+    for (const landmark of landmarks) {
+      if (landmark.floorId !== from.floorId) continue;
+      const distance = distanceToSegment(from, to, landmark);
+      const visibilityRadiusFeet = Math.max(1, Number(landmark.visibilityRadiusFeet) || DEFAULT_LANDMARK_VISIBILITY_FEET);
+      if (distance > visibilityRadiusFeet * pixelsPerFoot) continue;
+      if (best.has(landmark.id) && best.get(landmark.id) <= distance) continue;
+      if (best.has(landmark.id)) {
+        for (const set of bestBySegment.values()) set.delete(landmark.id);
+      }
+      best.set(landmark.id, distance);
+      if (!bestBySegment.has(i)) bestBySegment.set(i, new Set());
+      bestBySegment.get(i).add(landmark.id);
+    }
+  }
+  return bestBySegment;
+}
+
+function nearbyLandmarksForSegment(from, to, landmarks, allowedIds) {
+  if (!allowedIds || allowedIds.size === 0) return [];
   const heading = bearing(from, to);
+  const annotations = [];
   for (const landmark of landmarks) {
-    if (landmark.floorId !== from.floorId) continue;
-
-    const px = landmark.x - from.x;
-    const py = landmark.y - from.y;
-    const t = (px * dx + py * dy) / lengthSq;
-    if (t < 0.15 || t > 1.15) continue;
-
-    const perpDist = Math.abs(dx * py - dy * px) / Math.sqrt(lengthSq);
-    const visibilityRadiusFeet = Math.max(1, Number(landmark.visibilityRadiusFeet) || DEFAULT_LANDMARK_VISIBILITY_FEET);
-    if (perpDist > visibilityRadiusFeet * pixelsPerFoot) continue;
-
+    if (!allowedIds.has(landmark.id)) continue;
     const relative = normalizeAngleDiff(bearing(from, landmark) - heading);
     const side = Math.abs(relative) < 20 ? 'ahead' : relative > 0 ? 'right' : 'left';
     annotations.push({
       text: `${landmark.description || landmark.name} is on your ${side} at about ${clockDirection(relative)} o'clock`,
-      distance: perpDist,
+      distance: distanceToSegment(from, to, landmark),
     });
   }
   return annotations.sort((a, b) => a.distance - b.distance).slice(0, 2).map((a) => a.text);
@@ -155,6 +184,7 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
   const poisWithNodes = pois
     .map((p) => ({ ...p, node: pathNodes.find((n) => n.id === p.nodeId) }))
     .filter((p) => p.node);
+  const landmarksBySegment = assignLandmarksToClosestSegment(pathNodes, pathEdges, landmarks, floorsById);
 
   const instructions = [];
   const freeBadgeDoorsCrossed = [];
@@ -238,11 +268,9 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
     }
 
     const heading = bearing(from, to);
-    const floor = floorsById.get(from.floorId);
-    const pixelsPerFoot = floor?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
     const annotations = [
       ...poiAnnotationsForSegment(from, to, poisWithNodes, pathNodeIds),
-      ...nearbyLandmarksForSegment(from, to, landmarks, pixelsPerFoot),
+      ...nearbyLandmarksForSegment(from, to, landmarks, landmarksBySegment.get(i)),
     ];
 
     if (prevHeading === null) {

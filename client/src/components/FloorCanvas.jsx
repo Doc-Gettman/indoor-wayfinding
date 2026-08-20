@@ -11,6 +11,7 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.25;
 const DRAG_THRESHOLD_PX = 3;
+const NODE_LONG_PRESS_MS = 450;
 const PAN_PADDING_FACTOR = 0.5;
 const FOCUS_ZOOM = 1;
 const EDGE_FOCUS_MAX_ZOOM = 1.5;
@@ -64,6 +65,7 @@ export default function FloorCanvas({
   mode,
   onCanvasClick,
   onNodeClick,
+  onNodeMove,
   onEdgeClick,
   onDraftPointClick,
   onLandmarkPlace,
@@ -74,8 +76,11 @@ export default function FloorCanvas({
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
+  const [movingNode, setMovingNode] = useState(null);
   const scrollRef = useRef(null);
   const dragRef = useRef(null);
+  const nodeMoveRef = useRef(null);
+  const nodeMoveTimerRef = useRef(null);
   const fittedImageRef = useRef(null);
   const zoomRef = useRef(zoom);
   const [pendingScroll, setPendingScroll] = useState(null);
@@ -306,6 +311,88 @@ export default function FloorCanvas({
     onDraftPointClick(tempId);
   }
 
+  function getSvgPoint(clientX, clientY) {
+    const svg = scrollRef.current?.querySelector('svg');
+    if (!svg || !size) return null;
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: Math.round(Math.max(0, Math.min(size.width, (clientX - rect.left) / zoomRef.current))),
+      y: Math.round(Math.max(0, Math.min(size.height, (clientY - rect.top) / zoomRef.current))),
+    };
+  }
+
+  function clearNodeMoveTimer() {
+    if (!nodeMoveTimerRef.current) return;
+    clearTimeout(nodeMoveTimerRef.current);
+    nodeMoveTimerRef.current = null;
+  }
+
+  function finishNodeMove(commit) {
+    const nodeMove = nodeMoveRef.current;
+    clearNodeMoveTimer();
+    if (nodeMove) {
+      window.removeEventListener('mousemove', handleWindowNodeMove);
+      window.removeEventListener('mouseup', handleWindowNodeUp);
+      if (commit && nodeMove.active && nodeMove.current) {
+        onNodeMove?.(nodeMove.nodeId, nodeMove.current);
+        suppressClickRef.current = true;
+      }
+    }
+    nodeMoveRef.current = null;
+    setMovingNode(null);
+  }
+
+  function handleNodeMouseDown(node, e) {
+    if (mode !== 'select' || node.id !== selectedNodeId || e.button !== 0 || !onNodeMove) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    nodeMoveRef.current = {
+      nodeId: node.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origin: { x: node.x, y: node.y },
+      current: { x: node.x, y: node.y },
+      active: false,
+      cancelled: false,
+    };
+    nodeMoveTimerRef.current = setTimeout(() => {
+      const pending = nodeMoveRef.current;
+      if (!pending || pending.cancelled) return;
+      pending.active = true;
+      setMovingNode({ id: pending.nodeId, x: pending.origin.x, y: pending.origin.y });
+    }, NODE_LONG_PRESS_MS);
+    window.addEventListener('mousemove', handleWindowNodeMove);
+    window.addEventListener('mouseup', handleWindowNodeUp);
+  }
+
+  function handleWindowNodeMove(e) {
+    const nodeMove = nodeMoveRef.current;
+    if (!nodeMove) return;
+    const dx = e.clientX - nodeMove.startX;
+    const dy = e.clientY - nodeMove.startY;
+    if (!nodeMove.active) {
+      if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+        nodeMove.cancelled = true;
+        finishNodeMove(false);
+      }
+      return;
+    }
+    const point = getSvgPoint(e.clientX, e.clientY);
+    if (!point) return;
+    nodeMove.current = point;
+    setMovingNode({ id: nodeMove.nodeId, ...point });
+  }
+
+  function handleWindowNodeUp() {
+    finishNodeMove(true);
+  }
+
+  useEffect(() => {
+    return () => finishNodeMove(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleLandmarkClick(id) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
@@ -370,7 +457,8 @@ export default function FloorCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [size]);
 
-  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const displayNodes = movingNode ? nodes.map((node) => (node.id === movingNode.id ? { ...node, x: movingNode.x, y: movingNode.y } : node)) : nodes;
+  const nodeById = new Map(displayNodes.map((n) => [n.id, n]));
   const edgeStrokeWidth = screenPx(3, zoom);
   const markerStrokeWidth = screenPx(2, zoom);
   const labelFontSize = screenPx(12, zoom);
@@ -403,8 +491,8 @@ export default function FloorCanvas({
   }, [pendingScroll, zoom, contentWidth, contentHeight]);
 
   return (
-    <div>
-      <div className="row" style={{ marginBottom: 8 }}>
+    <div className="floor-canvas">
+      <div className="row floor-canvas__controls">
         <button type="button" onClick={() => zoomAtViewportCenter(1 / ZOOM_STEP)} title="Zoom out">
           −
         </button>
@@ -420,15 +508,15 @@ export default function FloorCanvas({
         <span className="muted">Scroll to zoom, click-drag to pan.</span>
       </div>
       <div
+        className="floor-canvas__viewport"
         ref={scrollRef}
         onMouseDown={handleMouseDown}
         style={{
           overflow: 'auto',
           border: '1px solid var(--border)',
           borderRadius: 8,
-          maxHeight: '75vh',
           overscrollBehavior: 'contain',
-          userSelect: isDragging ? 'none' : 'auto',
+          userSelect: isDragging || movingNode ? 'none' : 'auto',
         }}
       >
         <div style={{ position: 'relative', width: contentWidth, height: contentHeight }}>
@@ -451,7 +539,9 @@ export default function FloorCanvas({
                   left: 0,
                   overflow: 'visible',
                   cursor:
-                    mode === 'chain' || mode === 'landmark' || mode === 'calibrate'
+                    movingNode
+                      ? 'grabbing'
+                      : mode === 'chain' || mode === 'landmark' || mode === 'calibrate'
                       ? 'crosshair'
                       : isDragging
                         ? 'grabbing'
@@ -520,7 +610,7 @@ export default function FloorCanvas({
                 />
               ))}
 
-              {nodes.map((node) => {
+              {displayNodes.map((node) => {
                 const isSelected = node.id === selectedNodeId;
                 const isPoi = poiNodeIds.has(node.id);
                 const hasQrCode = qrNodeIds.has(node.id);
@@ -531,7 +621,8 @@ export default function FloorCanvas({
                       e.stopPropagation();
                       handleNodeClick(node.id);
                     }}
-                    style={{ cursor: 'pointer' }}
+                    onMouseDown={(e) => handleNodeMouseDown(node, e)}
+                    style={{ cursor: mode === 'select' && isSelected && onNodeMove ? 'grab' : 'pointer' }}
                   >
                     <circle
                       cx={node.x}

@@ -4,7 +4,7 @@ import { requireAdmin } from '../middleware/auth.js';
 
 export const buildingsRouter = Router();
 
-const COPY_COLLECTIONS = ['floors', 'nodes', 'edges', 'pois', 'landmarks', 'qrcodes'];
+const COPY_COLLECTIONS = ['floors', 'nodes', 'edges', 'pois', 'destinationTypes', 'landmarks', 'qrcodes'];
 const BASE_URL = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
 
 function cleanGroupId(value) {
@@ -68,6 +68,11 @@ function copyCollections(targetBuildingId, collections) {
     nodeId: remapRef(poi.nodeId, nodeIdMap),
   }));
 
+  const destinationTypes = collections.destinationTypes.map((type) => ({
+    ...type,
+    id: nextId('destination-type'),
+  }));
+
   const landmarks = collections.landmarks.map((landmark) => ({
     ...landmark,
     id: nextId('landmark'),
@@ -84,7 +89,13 @@ function copyCollections(targetBuildingId, collections) {
     };
   });
 
-  return { floors, nodes, edges, pois, landmarks, qrcodes };
+  const destinationTypeIdMap = new Map(collections.destinationTypes.map((type, index) => [type.id, destinationTypes[index].id]));
+  const poisWithDestinationTypes = pois.map((poi) => ({
+    ...poi,
+    destinationTypeId: poi.destinationTypeId ? destinationTypeIdMap.get(poi.destinationTypeId) || null : null,
+  }));
+
+  return { floors, nodes, edges, pois: poisWithDestinationTypes, destinationTypes, landmarks, qrcodes };
 }
 
 buildingsRouter.get('/', async (req, res) => {

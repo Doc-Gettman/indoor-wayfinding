@@ -5,6 +5,24 @@ import { syncTransitionEdges, removeTransitionEdges } from '../lib/transitions.j
 
 export const nodesRouter = Router({ mergeParams: true });
 
+function pixelDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function refreshAttachedManualEdgeWeights(nodes, edges, nodeId) {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return edges.map((edge) => {
+    const isAttached = edge.from === nodeId || edge.to === nodeId;
+    const isGeneratedTransitionEdge = Boolean(edge.transitionGroupId) || edge.generatedByTransitionGroup || edge.type === 'elevator' || edge.type === 'stairs';
+    if (!isAttached || isGeneratedTransitionEdge) return edge;
+
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to || from.floorId !== to.floorId) return edge;
+    return { ...edge, weight: pixelDistance(from, to) };
+  });
+}
+
 nodesRouter.get('/', async (req, res) => {
   res.json(await getCollection(req.params.buildingId, 'nodes'));
 });
@@ -62,6 +80,7 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
   const nodes = await getCollection(req.params.buildingId, 'nodes');
   const index = nodes.findIndex((n) => n.id === req.params.nodeId);
   if (index === -1) return res.status(404).json({ error: 'Node not found' });
+  const positionChanged = req.body?.x !== undefined || req.body?.y !== undefined;
   nodes[index] = { ...nodes[index], ...req.body, id: nodes[index].id };
   if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId && req.body?.transitionGroupName !== undefined) {
     for (const node of nodes) {
@@ -72,12 +91,16 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
   }
   await saveCollection(req.params.buildingId, 'nodes', nodes);
 
-  if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId) {
+  if (positionChanged || (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId)) {
     const [edges, floors] = await Promise.all([
       getCollection(req.params.buildingId, 'edges'),
       getCollection(req.params.buildingId, 'floors'),
     ]);
-    const updated = syncTransitionEdges(nodes, edges, nodes[index], new Map(floors.map((f) => [f.id, f])));
+    const weightedEdges = positionChanged ? refreshAttachedManualEdgeWeights(nodes, edges, nodes[index].id) : edges;
+    const updated =
+      nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId
+        ? syncTransitionEdges(nodes, weightedEdges, nodes[index], new Map(floors.map((f) => [f.id, f])))
+        : weightedEdges;
     await saveCollection(req.params.buildingId, 'edges', updated);
   }
 

@@ -29,6 +29,7 @@ export default function FloorEditor() {
   const [buildingNodes, setBuildingNodes] = useState([]);
   const [buildingEdges, setBuildingEdges] = useState([]);
   const [pois, setPois] = useState([]);
+  const [destinationTypes, setDestinationTypes] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
   const [qrcodes, setQrcodes] = useState([]);
   const [error, setError] = useState(null);
@@ -64,6 +65,7 @@ export default function FloorEditor() {
     api.listNodes(buildingId).then(setBuildingNodes).catch((err) => setError(err.message));
     api.listEdges(buildingId).then(setBuildingEdges).catch((err) => setError(err.message));
     api.listPois(buildingId).then(setPois).catch((err) => setError(err.message));
+    api.listDestinationTypes(buildingId).then(setDestinationTypes).catch((err) => setError(err.message));
     api.listLandmarks(buildingId).then(setLandmarks).catch((err) => setError(err.message));
     api.listQrCodes(buildingId).then(setQrcodes).catch((err) => setError(err.message));
   }, [buildingId]);
@@ -279,6 +281,7 @@ export default function FloorEditor() {
       doorRequiresBadgeAccess: false,
       poiName: '',
       poiDescription: '',
+      destinationTypeId: '',
     };
     setDraftPoints((prev) => [...prev, newPoint]);
     const to = { type: 'draft', tempId };
@@ -388,7 +391,12 @@ export default function FloorEditor() {
         });
         idMap.set(point.tempId, created.id);
         if (point.nodeType === 'destination') {
-          await api.createPoi(buildingId, { nodeId: created.id, name: point.poiName, description: point.poiDescription });
+          await api.createPoi(buildingId, {
+            nodeId: created.id,
+            name: point.poiName,
+            description: point.poiDescription,
+            destinationTypeId: point.destinationTypeId || null,
+          });
         }
       }
       function resolveRealId(ref) {
@@ -431,6 +439,22 @@ export default function FloorEditor() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleMoveNode(nodeId, point) {
+    const node = buildingNodes.find((n) => n.id === nodeId);
+    if (!node || (node.x === point.x && node.y === point.y)) return;
+
+    setError(null);
+    setBuildingNodes((prev) => prev.map((candidate) => (candidate.id === nodeId ? { ...candidate, ...point } : candidate)));
+    try {
+      const updated = await api.updateNode(buildingId, nodeId, point);
+      setBuildingNodes((prev) => prev.map((candidate) => (candidate.id === nodeId ? updated : candidate)));
+      refresh();
+    } catch (err) {
+      setError(err.message);
+      setBuildingNodes((prev) => prev.map((candidate) => (candidate.id === nodeId ? node : candidate)));
     }
   }
 
@@ -552,6 +576,7 @@ export default function FloorEditor() {
                 floors={floors}
                 buildingNodes={buildingNodes}
                 currentFloorId={floorId}
+                destinationTypes={destinationTypes}
                 onSelectPoint={setSelectedDraftId}
                 onUpdatePoint={handleUpdateDraftPoint}
                 onUndoLast={handleUndoLastPoint}
@@ -608,6 +633,7 @@ export default function FloorEditor() {
                 buildingNodes={buildingNodes}
                 buildingEdges={buildingEdges}
                 poiByNodeId={poiByNodeId}
+                destinationTypes={destinationTypes}
                 buildingId={buildingId}
                 onChanged={refresh}
                 onDeleted={() => {
@@ -672,6 +698,7 @@ export default function FloorEditor() {
               mode={mode === 'qr' ? 'select' : mode}
               onCanvasClick={handleCanvasClick}
               onNodeClick={handleNodeClick}
+              onNodeMove={handleMoveNode}
               onEdgeClick={handleSelectEdge}
               onDraftPointClick={setSelectedDraftId}
               onLandmarkPlace={handleLandmarkPlace}
@@ -1000,6 +1027,7 @@ function ChainPanel({
   floors,
   buildingNodes,
   currentFloorId,
+  destinationTypes,
   onSelectPoint,
   onUpdatePoint,
   onUndoLast,
@@ -1043,6 +1071,7 @@ function ChainPanel({
           floors={floors}
           buildingNodes={buildingNodes}
           currentFloorId={currentFloorId}
+          destinationTypes={destinationTypes}
           onUpdate={onUpdatePoint}
         />
       )}
@@ -1063,7 +1092,7 @@ function ChainPanel({
   );
 }
 
-function DraftPointFields({ point, floors, buildingNodes, currentFloorId, onUpdate }) {
+function DraftPointFields({ point, floors, buildingNodes, currentFloorId, destinationTypes, onUpdate }) {
   return (
     <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
       <label className="muted" htmlFor="draft-type">Type</label>
@@ -1100,6 +1129,20 @@ function DraftPointFields({ point, floors, buildingNodes, currentFloorId, onUpda
             onChange={(e) => onUpdate(point.tempId, { poiName: e.target.value })}
             style={{ width: '100%', marginBottom: 8 }}
           />
+          <label className="muted" htmlFor="draft-destination-type">Destination type</label>
+          <select
+            id="draft-destination-type"
+            value={point.destinationTypeId || ''}
+            onChange={(e) => onUpdate(point.tempId, { destinationTypeId: e.target.value })}
+            style={{ width: '100%', marginBottom: 8 }}
+          >
+            <option value="">No type</option>
+            {destinationTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
           <label className="muted" htmlFor="draft-destination-description">Description</label>
           <input
             id="draft-destination-description"
@@ -1343,7 +1386,20 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, currentFlo
   );
 }
 
-function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeId, buildingId, onChanged, onDeleted, onStartChain, onHighlightEdges }) {
+function NodePanel({
+  node,
+  poi,
+  floors,
+  buildingNodes,
+  buildingEdges,
+  poiByNodeId,
+  destinationTypes,
+  buildingId,
+  onChanged,
+  onDeleted,
+  onStartChain,
+  onHighlightEdges,
+}) {
   const [label, setLabel] = useState(node.label || '');
   const [nodeType, setNodeType] = useState(node.nodeType || 'waypoint');
   const [transitionSubtype, setTransitionSubtype] = useState(node.transitionSubtype || 'elevator');
@@ -1357,6 +1413,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
 
   const [poiName, setPoiName] = useState(poi?.name || '');
   const [poiDescription, setPoiDescription] = useState(poi?.description || '');
+  const [poiDestinationTypeId, setPoiDestinationTypeId] = useState(poi?.destinationTypeId || '');
 
   // Tracks what THIS component has itself persisted so far, independent of
   // the `node`/`poi` props (which only advance once the parent's async
@@ -1390,11 +1447,12 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
       await api.updateNode(buildingId, node.id, patch);
 
       let nextPoiId = committedPoiId;
+      const poiPatch = { name: poiName, description: poiDescription, destinationTypeId: poiDestinationTypeId || null };
       if (nodeType === 'destination') {
         if (committedPoiId) {
-          await api.updatePoi(buildingId, committedPoiId, { name: poiName, description: poiDescription });
+          await api.updatePoi(buildingId, committedPoiId, poiPatch);
         } else {
-          const created = await api.createPoi(buildingId, { nodeId: node.id, name: poiName, description: poiDescription });
+          const created = await api.createPoi(buildingId, { nodeId: node.id, ...poiPatch });
           nextPoiId = created.id;
         }
       } else if (committedType === 'destination' && committedPoiId) {
@@ -1424,9 +1482,18 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
     setError(null);
     try {
       if (committedPoiId) {
-        await api.updatePoi(buildingId, committedPoiId, { name: poiName, description: poiDescription });
+        await api.updatePoi(buildingId, committedPoiId, {
+          name: poiName,
+          description: poiDescription,
+          destinationTypeId: poiDestinationTypeId || null,
+        });
       } else {
-        const created = await api.createPoi(buildingId, { nodeId: node.id, name: poiName, description: poiDescription });
+        const created = await api.createPoi(buildingId, {
+          nodeId: node.id,
+          name: poiName,
+          description: poiDescription,
+          destinationTypeId: poiDestinationTypeId || null,
+        });
         setCommittedPoiId(created.id);
       }
       onChanged();
@@ -1442,6 +1509,7 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
       setCommittedPoiId(null);
       setPoiName('');
       setPoiDescription('');
+      setPoiDestinationTypeId('');
       onChanged();
     } catch (err) {
       setError(err.message);
@@ -1566,6 +1634,20 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
             onChange={(e) => setPoiName(e.target.value)}
             style={{ width: '100%', marginBottom: 8 }}
           />
+          <label className="muted" htmlFor="node-destination-type">Destination type</label>
+          <select
+            id="node-destination-type"
+            value={poiDestinationTypeId}
+            onChange={(e) => setPoiDestinationTypeId(e.target.value)}
+            style={{ width: '100%', marginBottom: 8 }}
+          >
+            <option value="">No type</option>
+            {destinationTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
           <label className="muted" htmlFor="node-destination-description">Description</label>
           <input
             id="node-destination-description"
@@ -1596,6 +1678,20 @@ function NodePanel({ node, poi, floors, buildingNodes, buildingEdges, poiByNodeI
           <h2 style={{ marginTop: 20 }}>Also tag as a destination</h2>
           <label className="muted" htmlFor="poi-name">Name</label>
           <input id="poi-name" value={poiName} onChange={(e) => setPoiName(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
+          <label className="muted" htmlFor="poi-destination-type">Destination type</label>
+          <select
+            id="poi-destination-type"
+            value={poiDestinationTypeId}
+            onChange={(e) => setPoiDestinationTypeId(e.target.value)}
+            style={{ width: '100%', marginBottom: 8 }}
+          >
+            <option value="">No type</option>
+            {destinationTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
           <label className="muted" htmlFor="poi-description">Description</label>
           <input
             id="poi-description"

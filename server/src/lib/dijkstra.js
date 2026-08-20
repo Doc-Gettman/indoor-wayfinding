@@ -1,5 +1,5 @@
 const FLOOR_CHANGE_PENALTY = 20000;
-const BADGE_ACCESS_PENALTY = 60000;
+const BADGE_ACCESS_PENALTY = 350;
 // A stairs edge's stored weight (set in transitions.js) is the downhill
 // rate; going up the same stairs costs this many times as much, since most
 // visitors would rather take an elevator up several flights than climb them,

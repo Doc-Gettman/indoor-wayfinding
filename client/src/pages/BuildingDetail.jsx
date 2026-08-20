@@ -141,7 +141,8 @@ export default function BuildingDetail() {
         </button>
       </form>
       <p className="muted" style={{ marginTop: -8 }}>
-        <Link to="/admin/groups">Manage groups</Link>
+        <Link to="/admin/groups">Manage groups</Link> |{' '}
+        <Link to={`/admin/buildings/${buildingId}/destination-types`}>Manage destination types</Link>
       </p>
 
       <h2>Floors</h2>

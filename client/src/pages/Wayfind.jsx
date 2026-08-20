@@ -348,6 +348,7 @@ export default function Wayfind() {
   const [originNode, setOriginNode] = useState(null);
   const [originQrCode, setOriginQrCode] = useState(null);
   const [pois, setPois] = useState(null);
+  const [destinationTypes, setDestinationTypes] = useState([]);
   const [floors, setFloors] = useState(null);
   const [nodes, setNodes] = useState(null);
   const [destinationSearch, setDestinationSearch] = useState('');
@@ -380,6 +381,7 @@ export default function Wayfind() {
   useEffect(() => {
     api.getBuilding(buildingId).then(setBuilding).catch((err) => setLoadError(err.message));
     api.listPois(buildingId).then(setPois).catch((err) => setLoadError(err.message));
+    api.listDestinationTypes(buildingId).then(setDestinationTypes).catch((err) => setLoadError(err.message));
     api.listFloors(buildingId).then(setFloors).catch((err) => setLoadError(err.message));
     api.listNodes(buildingId).then(setNodes).catch((err) => setLoadError(err.message));
     if (originNodeId) {
@@ -412,10 +414,12 @@ export default function Wayfind() {
     const normalizedSearch = destinationSearch.trim();
     const floorById = new Map(floors.map((floor) => [floor.id, floor]));
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const destinationTypeById = new Map(destinationTypes.map((type) => [type.id, type]));
     const groupsByFloorId = new Map();
 
     for (const poi of pois) {
-      const searchText = `${poi.name || ''} ${poi.description || ''}`;
+      const destinationType = destinationTypeById.get(poi.destinationTypeId) || null;
+      const searchText = `${poi.name || ''} ${destinationType?.name || ''} ${poi.description || ''}`;
       if (normalizedSearch && !matchesDestinationSearch(normalizedSearch, searchText)) continue;
 
       const node = nodeById.get(poi.nodeId);
@@ -427,7 +431,7 @@ export default function Wayfind() {
         groupsByFloorId.set(floorId, { floorId, floor, floorName, pois: [] });
       }
 
-      groupsByFloorId.get(floorId).pois.push({ ...poi, node });
+      groupsByFloorId.get(floorId).pois.push({ ...poi, node, destinationTypeName: destinationType?.name || '' });
     }
 
     const originFloorId = originNode?.floorId || null;
@@ -445,7 +449,7 @@ export default function Wayfind() {
         if (b.floorId === UNKNOWN_FLOOR_ID && a.floorId !== UNKNOWN_FLOOR_ID) return -1;
         return compareFloors(a, b);
       });
-  }, [destinationSearch, floors, nodes, originNode?.floorId, pois]);
+  }, [destinationSearch, destinationTypes, floors, nodes, originNode?.floorId, pois]);
 
   const destinationCount = destinationGroups.reduce((count, group) => count + group.pois.length, 0);
 

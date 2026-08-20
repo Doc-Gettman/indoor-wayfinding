@@ -82,6 +82,13 @@ export const api = {
     request(`/buildings/${buildingId}/pois/${poiId}`, { method: 'PUT', body: json(data) }),
   deletePoi: (buildingId, poiId) => request(`/buildings/${buildingId}/pois/${poiId}`, { method: 'DELETE' }),
 
+  listDestinationTypes: (buildingId) => request(`/buildings/${buildingId}/destination-types`),
+  createDestinationType: (buildingId, data) =>
+    request(`/buildings/${buildingId}/destination-types`, { method: 'POST', body: json(data) }),
+  updateDestinationType: (buildingId, typeId, data) =>
+    request(`/buildings/${buildingId}/destination-types/${typeId}`, { method: 'PUT', body: json(data) }),
+  deleteDestinationType: (buildingId, typeId) => request(`/buildings/${buildingId}/destination-types/${typeId}`, { method: 'DELETE' }),
+
   listLandmarks: (buildingId) => request(`/buildings/${buildingId}/landmarks`),
   createLandmark: (buildingId, data) => request(`/buildings/${buildingId}/landmarks`, { method: 'POST', body: json(data) }),
   updateLandmark: (buildingId, landmarkId, data) =>

@@ -236,9 +236,13 @@ input, select {
 
 .floor-editor-layout {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr) 320px;
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
+}
+
+.floor-editor-layout--with-edge-list {
+  grid-template-columns: 360px minmax(0, 1fr) 320px;
 }
 
 .floor-editor-sidebar {
@@ -252,13 +256,42 @@ input, select {
 }
 
 .floor-editor-map {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.floor-editor-map-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 .floor-editor-map > h2,
 .floor-editor-map > .list,
 .floor-editor-map > .muted {
   display: none;
+}
+
+.floor-editor-map .floor-canvas {
+  flex: 1;
+}
+
+.floor-canvas {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.floor-canvas__controls {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+
+.floor-canvas__viewport {
+  flex: 1;
+  min-height: 75vh;
 }
 
 .edge-list-panel {
@@ -297,7 +330,8 @@ input, select {
 }
 
 @media (max-width: 1180px) {
-  .floor-editor-layout {
+  .floor-editor-layout,
+  .floor-editor-layout--with-edge-list {
     grid-template-columns: 320px minmax(0, 1fr);
   }
 

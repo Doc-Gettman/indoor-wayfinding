@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx';
 import BuildingsList from './pages/BuildingsList.jsx';
 import BuildingDetail from './pages/BuildingDetail.jsx';
 import FloorEditor from './pages/FloorEditor.jsx';
+import DestinationTypes from './pages/DestinationTypes.jsx';
 import Groups from './pages/Groups.jsx';
 import Wayfind from './pages/Wayfind.jsx';
 
@@ -64,6 +65,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <BuildingDetail />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/buildings/:buildingId/destination-types"
+          element={
+            <RequireAdmin>
+              <DestinationTypes />
             </RequireAdmin>
           }
         />
