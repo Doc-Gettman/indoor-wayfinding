@@ -666,16 +666,11 @@ export default function FloorEditor() {
               </button>
             </div>
 
-            <SpacesPanel key={floorId} buildingId={buildingId} spaces={spaces} activeSpaceId={activeSpaceId}
-              onActiveChange={setActiveSpaceId} nodes={floorNodes} landmarks={floorLandmarks} pois={pois}
-              onHighlightNodes={setBulkNodeIds}
-              onChanged={(space) => { if (space) setSpaces((prev) => [...prev.filter((s) => s.id !== space.id), space]); refresh(); }} />
             {pendingBoundary && mode === 'chain' && <div className="card">
               <SpaceSelect label="Which space are you continuing into?" spaces={spaces.filter((space) => pendingBoundary.boundarySpaceIds.includes(space.id))}
                 value={null} allowUnspecified={false} onChange={(id) => { setActiveSpaceId(id); setPendingBoundary(null); }} />
               <p className="muted">Choose a side before adding the next point.</p>
             </div>}
-            {floorEdges.some((edge) => edge.needsSpaceReview) && <p className="error">Some connections need space review. Select a flagged connection to fix its boundary or assignment.</p>}
             {mode === 'chain' ? (
               <ChainPanel
                 spaces={spaces}
@@ -768,6 +763,12 @@ export default function FloorEditor() {
             ) : (
               <div className="card muted">Select a waypoint, destination, edge, or landmark to edit its details.</div>
             )}
+
+            {floorEdges.some((edge) => edge.needsSpaceReview) && <p className="error">Some connections need space review. Select a flagged connection to fix its boundary or assignment.</p>}
+            <SpacesPanel key={floorId} buildingId={buildingId} spaces={spaces} activeSpaceId={activeSpaceId}
+              onActiveChange={setActiveSpaceId} nodes={floorNodes} landmarks={floorLandmarks} pois={pois}
+              onHighlightNodes={setBulkNodeIds}
+              onChanged={(space) => { if (space) setSpaces((prev) => [...prev.filter((s) => s.id !== space.id), space]); refresh(); }} />
 
             {error && <div className="error">{error}</div>}
           </div>
