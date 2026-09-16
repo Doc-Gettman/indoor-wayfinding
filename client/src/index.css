@@ -622,6 +622,7 @@ input, select {
   color: #16a34a;
   filter: drop-shadow(0 2px 4px rgba(6, 15, 40, 0.45));
   pointer-events: none;
+  transform: translate(-50%, -100%);
   animation: destination-origin-bounce 1.2s ease-in-out infinite;
 }
 
@@ -691,11 +692,11 @@ input, select {
 
 @keyframes destination-origin-bounce {
   0%, 100% {
-    transform: translate(-50%, calc(-50% - 5px));
+    transform: translate(-50%, calc(-100% - 5px));
   }
 
   50% {
-    transform: translate(-50%, calc(-50% + 5px));
+    transform: translate(-50%, calc(-100% + 5px));
   }
 }
 
