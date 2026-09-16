@@ -614,8 +614,8 @@ input, select {
 }
 
 .destination-map__marker--origin {
-  width: 28px;
-  height: 32px;
+  width: 18px;
+  height: 21px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -633,20 +633,20 @@ input, select {
   position: absolute;
   left: 50%;
   bottom: 0;
-  border-left: 14px solid transparent;
-  border-right: 14px solid transparent;
-  border-top: 22px solid #16a34a;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 14px solid #16a34a;
   transform: translateX(-50%);
 }
 
 .destination-map__marker--origin::before {
   content: "";
-  width: 12px;
-  height: 14px;
+  width: 8px;
+  height: 9px;
   position: absolute;
   left: 50%;
   top: 0;
-  border-radius: 999px 999px 4px 4px;
+  border-radius: 999px 999px 3px 3px;
   background: #16a34a;
   transform: translateX(-50%);
 }
@@ -692,11 +692,11 @@ input, select {
 
 @keyframes destination-origin-bounce {
   0%, 100% {
-    transform: translate(-50%, calc(-100% - 5px));
+    transform: translate(-50%, calc(-100% - 3px));
   }
 
   50% {
-    transform: translate(-50%, calc(-100% + 5px));
+    transform: translate(-50%, calc(-100% + 3px));
   }
 }
 
