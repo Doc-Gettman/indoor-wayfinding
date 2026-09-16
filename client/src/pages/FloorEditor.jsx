@@ -41,6 +41,7 @@ export default function FloorEditor() {
   const [edgeFocusNonce, setEdgeFocusNonce] = useState(0);
   const [edgeSplitPoint, setEdgeSplitPoint] = useState(null);
   const selectedEdgeRowRef = useRef(null);
+  const replaceImageInputRef = useRef(null);
   const [selectedLandmarkId, setSelectedLandmarkId] = useState(null);
   const [qrOriginNodeId, setQrOriginNodeId] = useState('');
   const [qrLabel, setQrLabel] = useState('');
@@ -257,6 +258,21 @@ export default function FloorEditor() {
     setError(null);
     try {
       await api.uploadFloorImage(buildingId, floorId, file);
+      refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleRemoveImage() {
+    if (!confirm('Remove this floor’s basemap image? Waypoints and destinations will be kept.')) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await api.removeFloorImage(buildingId, floorId);
       refresh();
     } catch (err) {
       setError(err.message);
@@ -543,6 +559,23 @@ export default function FloorEditor() {
             </div>
             <h1 style={{ marginTop: 4 }}>{floor?.name}</h1>
             <p className="muted">Scale: {floor.pixelsPerFoot ? `${floor.pixelsPerFoot.toFixed(2)} px/ft` : 'not calibrated'}</p>
+
+            <div className="row card" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <button type="button" onClick={() => replaceImageInputRef.current?.click()} disabled={uploading}>
+                Replace basemap
+              </button>
+              <input
+                ref={replaceImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleUpload}
+                disabled={uploading}
+                style={{ display: 'none' }}
+              />
+              <button type="button" className="danger" onClick={handleRemoveImage} disabled={uploading}>
+                Remove basemap
+              </button>
+            </div>
 
             <div className="row card" style={{ flexWrap: 'wrap' }}>
               <button

@@ -477,6 +477,20 @@ input, select {
   transform-origin: left center;
 }
 
+.wayfind-stairs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.75rem 0 1rem;
+  cursor: pointer;
+}
+
+.wayfind-stairs-toggle input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+}
+
 .wayfind-map-toggle {
   width: 100%;
   margin: -4px 0 18px;

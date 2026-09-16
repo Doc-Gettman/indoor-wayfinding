@@ -353,6 +353,7 @@ export default function Wayfind() {
   const [nodes, setNodes] = useState(null);
   const [destinationSearch, setDestinationSearch] = useState('');
   const [destinationViewMode, setDestinationViewMode] = useState('list');
+  const [avoidStairs, setAvoidStairs] = useState(true);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [speechListening, setSpeechListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
@@ -459,7 +460,7 @@ export default function Wayfind() {
     setDirectionsError(null);
     setDirectionsLoading(true);
     try {
-      const result = await api.wayfind(buildingId, originNodeId, poi.id);
+      const result = await api.wayfind(buildingId, originNodeId, poi.id, avoidStairs);
       setDirections(result);
     } catch (err) {
       setDirectionsError(err.message);
@@ -651,6 +652,10 @@ export default function Wayfind() {
               >
                 {destinationViewMode === 'map' ? 'Show destination list' : 'Show destination map'}
               </button>
+              <label className="wayfind-stairs-toggle">
+                <input type="checkbox" role="switch" checked={avoidStairs} onChange={(event) => setAvoidStairs(event.target.checked)} />
+                Avoid stairs
+              </label>
               {destinationCount === 0 ? (
                 <p className="muted">No destinations match your search.</p>
               ) : destinationViewMode === 'map' ? (

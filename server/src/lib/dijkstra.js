@@ -157,7 +157,8 @@ function solveShortestPath(nodes, edges, fromNodeId, toNodeId, floorsById, { all
   };
 }
 
-export function findShortestPath(nodes, edges, fromNodeId, toNodeId, floorsById = new Map()) {
+export function findShortestPath(nodes, edges, fromNodeId, toNodeId, floorsById = new Map(), { avoidStairs = true } = {}) {
+  if (avoidStairs) edges = edges.filter((edge) => edge.type !== 'stairs');
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const fromNode = nodeById.get(fromNodeId);
   const toNode = nodeById.get(toNodeId);

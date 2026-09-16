@@ -7,6 +7,22 @@ export const floorsRouter = Router({ mergeParams: true });
 
 const ALLOWED_IMAGE_TYPES = /^image\/(png|jpe?g|webp)$/;
 
+// imagePath is a public storage URL like
+// `${SUPABASE_URL}/storage/v1/object/public/floor-images/<storagePath>?v=<cache-buster>`.
+// Pull the storagePath back out so we can remove the underlying file.
+function storagePathFromImageUrl(imagePath) {
+  const marker = '/floor-images/';
+  const markerIndex = imagePath.indexOf(marker);
+  if (markerIndex === -1) return null;
+  return imagePath.slice(markerIndex + marker.length).split('?')[0];
+}
+
+async function removeStorageImage(imagePath) {
+  const storagePath = storagePathFromImageUrl(imagePath);
+  if (!storagePath) return;
+  await supabase.storage.from('floor-images').remove([storagePath]);
+}
+
 floorsRouter.get('/', async (req, res) => {
   res.json(await getCollection(req.params.buildingId, 'floors'));
 });
@@ -67,7 +83,24 @@ floorsRouter.post('/:floorId/image', requireAdmin, async (req, res) => {
   const floors = await getCollection(req.params.buildingId, 'floors');
   const index = floors.findIndex((f) => f.id === req.params.floorId);
   if (index === -1) return res.status(404).json({ error: 'Floor not found' });
+  const previousImagePath = floors[index].imagePath;
   floors[index] = { ...floors[index], imagePath };
   await saveCollection(req.params.buildingId, 'floors', floors);
+  if (previousImagePath && storagePathFromImageUrl(previousImagePath) !== storagePathFromImageUrl(imagePath)) {
+    await removeStorageImage(previousImagePath).catch(() => {});
+  }
+  res.json(floors[index]);
+});
+
+floorsRouter.delete('/:floorId/image', requireAdmin, async (req, res) => {
+  const floors = await getCollection(req.params.buildingId, 'floors');
+  const index = floors.findIndex((f) => f.id === req.params.floorId);
+  if (index === -1) return res.status(404).json({ error: 'Floor not found' });
+  const { imagePath } = floors[index];
+  floors[index] = { ...floors[index], imagePath: null };
+  await saveCollection(req.params.buildingId, 'floors', floors);
+  if (imagePath) {
+    await removeStorageImage(imagePath).catch(() => {});
+  }
   res.json(floors[index]);
 });

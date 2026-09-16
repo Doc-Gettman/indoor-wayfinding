@@ -8,29 +8,29 @@ const TTL_MS = 60 * 60 * 1000;
 
 const buildingCaches = new Map();
 
-function cacheKey(from, to) {
-  return `${from}::${to}`;
+function cacheKey(from, to, avoidStairs) {
+  return JSON.stringify([from, to, avoidStairs]);
 }
 
-export function getCachedRoute(buildingId, from, to) {
+export function getCachedRoute(buildingId, from, to, avoidStairs = true) {
   const bucket = buildingCaches.get(buildingId);
   if (!bucket) return null;
-  const entry = bucket.get(cacheKey(from, to));
+  const entry = bucket.get(cacheKey(from, to, avoidStairs));
   if (!entry) return null;
   if (entry.expiresAt < Date.now()) {
-    bucket.delete(cacheKey(from, to));
+    bucket.delete(cacheKey(from, to, avoidStairs));
     return null;
   }
   return entry.value;
 }
 
-export function setCachedRoute(buildingId, from, to, value) {
+export function setCachedRoute(buildingId, from, to, value, avoidStairs = true) {
   let bucket = buildingCaches.get(buildingId);
   if (!bucket) {
     bucket = new Map();
     buildingCaches.set(buildingId, bucket);
   }
-  bucket.set(cacheKey(from, to), { value, expiresAt: Date.now() + TTL_MS });
+  bucket.set(cacheKey(from, to, avoidStairs), { value, expiresAt: Date.now() + TTL_MS });
 }
 
 export function invalidateRouteCache(buildingId) {

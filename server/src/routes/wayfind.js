@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 11;
+const ROUTING_VERSION = 12;
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const WALKING_FEET_PER_SECOND = 3;
 const ELEVATOR_BASE_SECONDS = 45;
@@ -140,11 +140,15 @@ function buildRouteMap(pathNodes, floorsById) {
 // GET /buildings/:buildingId/wayfind?from=<nodeId>&to=<poiId>
 wayfindRouter.get('/', async (req, res) => {
   const { from, to } = req.query;
+  if (req.query.avoidStairs !== undefined && !['true', 'false'].includes(req.query.avoidStairs)) {
+    return res.status(400).json({ error: 'avoidStairs must be true or false' });
+  }
+  const avoidStairs = req.query.avoidStairs !== 'false';
   if (!from || !to) return res.status(400).json({ error: 'from (node id) and to (poi id) query params are required' });
 
   const buildingId = req.params.buildingId;
 
-  const cached = getCachedRoute(buildingId, from, to);
+  const cached = getCachedRoute(buildingId, from, to, avoidStairs);
   if (cached?.routeMap && cached.routingVersion === ROUTING_VERSION) return res.json(cached);
 
   const [nodes, edges, pois, floors, landmarks, qrcodes] = await Promise.all([
@@ -163,8 +167,10 @@ wayfindRouter.get('/', async (req, res) => {
 
   const floorsById = new Map(floors.map((f) => [f.id, f]));
 
-  const result = findShortestPath(nodes, edges, from, destinationPoi.nodeId, floorsById);
-  if (!result) return res.status(404).json({ error: 'No route found between the given locations' });
+  const result = findShortestPath(nodes, edges, from, destinationPoi.nodeId, floorsById, { avoidStairs });
+  if (!result) return res.status(404).json({ error: avoidStairs
+    ? 'No route avoiding stairs was found. Choose another destination, or turn off “Avoid stairs” if you can use stairs.'
+    : 'No route found between the given locations' });
 
   const llmInstructions = await generateLLMDirections({
     pathNodes: result.nodes,
@@ -205,6 +211,6 @@ wayfindRouter.get('/', async (req, res) => {
     floorsCrossed: [...new Set(result.nodes.map((n) => n.floorId))],
     routeMap: buildRouteMap(result.nodes, floorsById),
   };
-  setCachedRoute(buildingId, from, to, payload);
+  setCachedRoute(buildingId, from, to, payload, avoidStairs);
   res.json(payload);
 });

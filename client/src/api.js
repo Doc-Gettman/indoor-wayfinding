@@ -63,6 +63,8 @@ export const api = {
       body: json({ imagePath: `${publicUrl}?v=${Date.now()}` }),
     });
   },
+  removeFloorImage: (buildingId, floorId) =>
+    request(`/buildings/${buildingId}/floors/${floorId}/image`, { method: 'DELETE' }),
 
   listNodes: (buildingId) => request(`/buildings/${buildingId}/nodes`),
   createNode: (buildingId, data) => request(`/buildings/${buildingId}/nodes`, { method: 'POST', body: json(data) }),
@@ -101,6 +103,6 @@ export const api = {
   deleteQrCode: (buildingId, qrId) => request(`/buildings/${buildingId}/qrcodes/${qrId}`, { method: 'DELETE' }),
   qrCodeImageUrl: (buildingId, qrId) => `${BASE}/buildings/${buildingId}/qrcodes/${qrId}/image`,
 
-  wayfind: (buildingId, from, to) =>
-    request(`/buildings/${buildingId}/wayfind?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  wayfind: (buildingId, from, to, avoidStairs = true) =>
+    request(`/buildings/${buildingId}/wayfind?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&avoidStairs=${avoidStairs}`),
 };
