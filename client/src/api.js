@@ -25,6 +25,11 @@ async function request(path, options = {}) {
 const json = (data) => JSON.stringify(data);
 
 export const api = {
+  listSpaces: (buildingId) => request(`/buildings/${buildingId}/spaces`),
+  createSpace: (buildingId, data) => request(`/buildings/${buildingId}/spaces`, { method: 'POST', body: json(data) }),
+  updateSpace: (buildingId, spaceId, data) => request(`/buildings/${buildingId}/spaces/${spaceId}`, { method: 'PUT', body: json(data) }),
+  deleteSpace: (buildingId, spaceId) => request(`/buildings/${buildingId}/spaces/${spaceId}`, { method: 'DELETE' }),
+  assignSpaces: (buildingId, data) => request(`/buildings/${buildingId}/spaces/assign`, { method: 'POST', body: json(data) }),
   login: (password) => request('/auth/login', { method: 'POST', body: json({ password }) }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   session: () => request('/auth/session'),

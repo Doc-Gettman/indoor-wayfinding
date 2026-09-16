@@ -4,6 +4,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
+    "test": "node --experimental-test-module-mocks --test src/lib/*.test.js",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },

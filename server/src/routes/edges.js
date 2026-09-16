@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { getCollection, saveCollection, nextId } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { validateAssignment, resolveEdgeSpace } from '../../../shared/spaces.js';
 
 export const edgesRouter = Router({ mergeParams: true });
 
-const MANUAL_EDGE_TYPES = new Set(['hallway', 'door']);
+const MANUAL_EDGE_TYPES = new Set(['walk', 'hallway', 'door']);
 
 function pixelDistance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -28,7 +29,11 @@ edgesRouter.post('/', requireAdmin, async (req, res) => {
   }
 
   const edges = await getCollection(req.params.buildingId, 'edges');
-  const edge = { id: nextId('edge'), from, to, type, weight: pixelDistance(fromNode, toNode) };
+  const assignmentError = validateAssignment(req.body, await getCollection(req.params.buildingId, 'spaces'), false);
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
+  const context = resolveEdgeSpace(req.body, fromNode, toNode);
+  if (context.error) return res.status(400).json({ error: context.error });
+  const edge = { id: nextId('edge'), from, to, type, spaceId: context.spaceId, weight: pixelDistance(fromNode, toNode) };
   edges.push(edge);
   await saveCollection(req.params.buildingId, 'edges', edges);
   res.status(201).json(edge);
@@ -47,7 +52,13 @@ edgesRouter.put('/:edgeId', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Generated elevator/stairs group edges cannot be edited directly' });
   }
 
-  edges[index] = { ...edges[index], type };
+  const nodes = await getCollection(req.params.buildingId, 'nodes');
+  const candidate = { ...edges[index], type, spaceId: req.body.spaceId === undefined ? edges[index].spaceId : req.body.spaceId };
+  const assignmentError = validateAssignment(candidate, await getCollection(req.params.buildingId, 'spaces'), false);
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
+  const context = resolveEdgeSpace(candidate, nodes.find((n) => n.id === candidate.from), nodes.find((n) => n.id === candidate.to));
+  if (context.error) return res.status(400).json({ error: context.error });
+  edges[index] = { ...candidate, spaceId: context.spaceId, needsSpaceReview: false };
   await saveCollection(req.params.buildingId, 'edges', edges);
   res.json(edges[index]);
 });

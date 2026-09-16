@@ -1,4 +1,5 @@
 import { nextId } from '../db.js';
+import { reconcileSpaceEdges } from '../../../shared/spaces.js';
 
 // Elevator wait+ride cost is roughly flat regardless of how many floors it
 // serves — riders just stand there. Stairs cost scales with floor count and
@@ -86,7 +87,7 @@ export function syncTransitionEdges(nodes, edges, changedNode, floorsById = new 
       const from = groupMembers[i];
       const to = groupMembers[j];
       const sameFloor = from.floorId === to.floorId;
-      const type = sameFloor ? 'hallway' : from.transitionSubtype || to.transitionSubtype || changedNode.transitionSubtype;
+      const type = sameFloor ? 'walk' : from.transitionSubtype || to.transitionSubtype || changedNode.transitionSubtype;
       let weight;
       if (sameFloor) {
         weight = Math.hypot(to.x - from.x, to.y - from.y);
@@ -109,7 +110,7 @@ export function syncTransitionEdges(nodes, edges, changedNode, floorsById = new 
     }
   }
 
-  return [...survivingEdges, ...newEdges];
+  return [...survivingEdges, ...reconcileSpaceEdges(nodes, newEdges)];
 }
 
 // Removes a transition node's edges from its group clique (used before delete).

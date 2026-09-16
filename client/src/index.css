@@ -477,6 +477,12 @@ input, select {
   transform-origin: left center;
 }
 
+.space-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.space-field select, .space-field input { width: 100%; }
+.space-assignment, .space-form { margin: 12px 0; }
+.space-bulk-list { max-height: 220px; overflow: auto; margin: 10px 0; }
+.space-bulk-list label { margin-bottom: 8px; }
+
 .wayfind-stairs-toggle {
   display: flex;
   align-items: center;

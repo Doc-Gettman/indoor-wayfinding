@@ -1,5 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+import { routeSpaceContexts, boundaryInstruction, resolveEdgeSpace } from '../../../shared/spaces.js';
+
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const DEFAULT_LANDMARK_VISIBILITY_FEET = 30;
 
@@ -82,6 +84,8 @@ function assignLandmarksToClosestSegment(pathNodes, pathEdges, landmarks, floors
     const pixelsPerFoot = floorsById.get(from.floorId)?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
     for (const landmark of landmarks) {
       if (landmark.floorId !== from.floorId) continue;
+      const spaceId = resolveEdgeSpace(edge, from, to).spaceId;
+      if (landmark.spaceId && spaceId && landmark.spaceId !== spaceId) continue;
       const distance = distanceToSegment(from, to, landmark);
       const visibilityRadiusFeet = Math.max(1, Number(landmark.visibilityRadiusFeet) || DEFAULT_LANDMARK_VISIBILITY_FEET);
       if (distance > visibilityRadiusFeet * pixelsPerFoot) continue;
@@ -124,7 +128,8 @@ function nearbyLandmarksForSegment(from, to, landmarks, heading, pixelsPerFoot, 
   return found.sort((a, b) => a.approxFeetAwayFromPath - b.approxFeetAwayFromPath).slice(0, 4);
 }
 
-function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, floorsById, landmarks, destination, origin }) {
+export function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, floorsById, landmarks = [], destination, origin, spaces = [] }) {
+  const spaceContexts = routeSpaceContexts(pathNodes, pathEdges, spaces);
   const segments = [];
   const returnTripBadgeDoors = new Map();
   const landmarksBySegment = assignLandmarksToClosestSegment(pathNodes, pathEdges, landmarks, floorsById);
@@ -196,7 +201,7 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     // reliable signal for whether a door is actually there — normalize the
     // edge type against it so a mistyped edge doesn't read to the LLM as a
     // second, nonexistent door.
-    const edgeType = to.nodeType === 'door' ? 'door' : edge.type === 'door' ? 'hallway' : edge.type;
+    const edgeType = to.nodeType === 'door' ? 'door' : ['door', 'hallway'].includes(edge.type) ? 'walk' : edge.type;
     // Badge doors are typically one-directional (see dijkstra.js's
     // isBadgeAccessEdge) — only surface the badge requirement to the LLM
     // when the visitor is actually arriving from the gated side, so it
@@ -209,6 +214,10 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     }
     segments.push({
       type: 'walk',
+      space: spaceContexts[i],
+      spaceChangeAtStart: i > 0 ? boundaryInstruction(spaceContexts[i - 1], spaceContexts[i]) : null,
+      spaceChangeAfterArrival: boundaryInstruction(spaceContexts[i], spaceContexts[i + 1]),
+      arrivalSpace: spaceContexts[i + 1] || null,
       floor: floorsById.get(from.floorId)?.name || from.floorId,
       edgeType,
       fromLabel: from.label || null,
@@ -244,29 +253,32 @@ function buildPathDescription({ pathNodes, pathEdges, allEdges, allNodes = pathN
     previousHeading = i === 0 && from.nodeType === 'destination' ? null : heading;
   }
   return {
-    origin: origin ? { label: origin.label, nodeType: origin.nodeType, nodeLabel: origin.nodeLabel || null } : null,
+    origin: origin ? { label: origin.label, nodeType: origin.nodeType, nodeLabel: origin.nodeLabel || null, space: spaces.find((space) => space.id === pathNodes[0]?.spaceId) || null } : null,
     segments,
-    destination: { name: destination.name, description: destination.description || null },
+    destination: { name: destination.name, description: destination.description || null, space: spaces.find((space) => space.id === pathNodes.at(-1)?.spaceId) || null },
     returnTripBadgeDoors: [...returnTripBadgeDoors.values()],
   };
 }
 
-const SYSTEM_PROMPT = `You write short, natural, conversational indoor walking directions for visitors to a building (hospital, office, etc.) — the way a helpful staff member would describe them out loud, not mechanical GPS turn-by-turn output.
+const SYSTEM_PROMPT = `You write short, natural, conversational walking directions for visitors inside and outside a building (hospital, office, etc.) — the way a helpful staff member would describe them out loud, not mechanical GPS turn-by-turn output.
 
 Guidelines:
-- When a segment has a nearby landmark, describe the turn or hallway relative to that landmark instead of raw distance or compass direction — e.g. "go through the glass doors with the Kimley-Horn logo" or "facing away from the reception desk, head left past the sign that says Radiology".
+- Space context is authoritative. Only use hallway/corridor wording when space.layout is "corridor". For open areas or rooms use the authored space name or descriptiveTerm (lobby, concourse, courtyard, walkway). For null/unspecified context use neutral "continue ahead" wording, never assume indoors or a hallway. A legacy hallway edge type is not evidence of a corridor.
+- Preserve every spaceChangeAtStart/spaceChangeAfterArrival in travel order, including indoor/outdoor changes. These fields can describe the same boundary on adjacent segments: mention it once, combine it with the door and any badge requirement if there is a real door, and do not invent a door at an open boundary. For example: "Go through the door into Entrance Lobby, then bear slightly left toward the stairs."
+- Mention a space on entry or when needed for orientation, not at every waypoint. Follow the supplied path through open spaces; do not suggest shortcuts. Do not infer accessibility from an elevator or from the space environment.
+- When a segment has a nearby landmark, describe the turn or path relative to that landmark instead of raw distance or compass direction — e.g. "go through the glass doors with the Kimley-Horn logo" or "facing away from the reception desk, head left past the sign that says Radiology".
 - Use directionFromPrevious and directionAfterArrival to articulate relative orientation when helpful, including clock directions like "to your right, about 2 o'clock". Prefer these over vague "continue straight" language after exiting a room or door.
-- Avoid stating precise distances in feet (e.g. "15 feet", "34 feet down") — describe distance qualitatively instead, based on approxFeet: short segments as "just down the hall" / "right past" / "a few steps", medium segments as "a little way down the corridor" / "partway down the hall", long segments as "quite a way down" / "toward the far end of the hallway". Only give a rounded, approximate number of feet ("about 50 feet or so") for unusually long stretches with no landmark and no natural qualitative phrase that fits — and even then, treat it as a last resort, not the default.
+- Avoid stating precise distances in feet (e.g. "15 feet", "34 feet down") — describe distance qualitatively instead, based on approxFeet: short segments as "a few steps" / "right past", medium segments as "a little farther", long segments as "farther ahead". Use "down the hallway" only for a confirmed corridor. Only give a rounded, approximate number of feet ("about 50 feet or so") for unusually long stretches with no landmark and no natural qualitative phrase that fits — and even then, treat it as a last resort, not the default.
 - Combine consecutive similar segments into a single natural sentence rather than one step per graph edge — aim for 3-8 total steps for a typical route.
 - Describe elevator/stairs segments as "Take the elevator/stairs to the Nth floor" — do not say "up" or "down"; toFloor's own name/number already says where it goes. If groupName is present, use it instead of "the elevator" — e.g. "Take one of the elevators for floors 1-15 to the 7th floor" — since a landing can have more than one interchangeable car and the visitor shouldn't be pointed at one specific door.
 - A transition segment's arrivalOrientationUnknown only makes left/right ambiguous when exitOrientationAmbiguous is true, which means the same elevator/stair group has landings on both sides of that floor's hall. If requiredExitInstruction is present, include that exact phrase as the first movement after exiting; do not replace it with vague route-shape language. If exitOrientationAmbiguous is false and routeExitDirection is "left" or "right", say "turn left" or "turn right" instead of wording like "head toward the hallway leading to [destination]" or "take the route down and around". If exitOrientationAmbiguous is true, avoid left/right for the first movement after arrival and disambiguate using exitLabel, routeExitLabel, or nearby landmarks. If exitOptionsCount is 0 or 1, say there is only one way to go.
-- For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("head down the hallway") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
+- For the same reason, directionFromPrevious is also null for the segment right after the origin room's exit door — the visitor's exact seat/position inside that room isn't known, so there's no real facing to turn from. Don't invent a turn there either; describe it plainly ("continue ahead") or lean on a landmark/upcomingDoorAfterArrival cue if one is present. A normal directionAfterArrival or directionFromPrevious at the *next* junction is fine.
 - Treat origin.label as a posted QR location label, not proof of what action the visitor just took. If origin.nodeType is "waypoint", do not say "coming off the elevator" or "when you step off" at the start; say "From the QR code/current location..." and direct them to walk the first segment to the elevator/stairs/door.
 - Only say "get back on the same elevator" when origin.nodeType is "transition" or the first path node is the elevator landing itself. If the origin is a nearby waypoint, say "walk to the elevator bank" and describe the first segment's distance qualitatively, per the distance guideline above.
 - Mention doors as doors ("open the door", "go through the glass double doors") when the path passes through a door-type waypoint. Use door descriptions when provided, EXCEPT: doors are frequently one-directional badge readers (free to exit, badge required to enter), and each door-related field (toDoorBadgeRequired, fromDoorBadgeRequired, nextDoorBadgeRequired, upcomingDoorAfterArrival.badgeRequired) tells you whether a badge is actually needed for THAT specific crossing. If that field is explicitly false, do not mention a badge even if the door's description references one — badge language only belongs on a crossing where the field is true. Do not add your own note about the return trip needing a badge; that is appended separately.
-- Only describe passing through a door where a segment's fromType or toType is literally "door" in the data. Never invent an extra "next door" or "another door" to narrate a reception desk, glass wall, or open area you're walking past — if there's no door-type node there, describe it as continuing down the hall/space, not as a separate door.
+- Only describe passing through a door where a segment's fromType or toType is literally "door" in the data. Never invent an extra "next door" or "another door" to narrate a reception desk, glass wall, or open area you're walking past — if there's no door-type node there, describe it as continuing along the path, not as a separate door.
 - When the route exits a named room through a door and upcomingDoorAfterArrival is present, use upcomingDoorAfterArrival.relativeToArrivalDirection as the visible-door cue: "After exiting..., you should see [door] to your [side] (about [clock]). Go through that door." Prefer this over directionAfterArrival for that exit.
-- Treat the first door immediately after the origin as the exit from that room; say "exit through..." or "leave through..." rather than describing it as a separate object off to the side.
+- Only describe the first door as exiting a room when origin.space.layout is "room". Otherwise follow the supplied spatial context; a door can enter a building from outdoors or connect two open areas.
 - If you mention an upcoming door in one step, do not repeat the same door in the next step. Fold the intervening movement into the same instruction.
 - For the final approach, if the last movement turns into a named destination, describe it as turning through the doorway/opening to reach that destination when that sounds natural.
 - Do not invent landmarks, room names, or details that are not present in the input data.

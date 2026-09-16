@@ -4,7 +4,7 @@ import { requireAdmin } from '../middleware/auth.js';
 
 export const buildingsRouter = Router();
 
-const COPY_COLLECTIONS = ['floors', 'nodes', 'edges', 'pois', 'destinationTypes', 'landmarks', 'qrcodes'];
+const COPY_COLLECTIONS = ['floors', 'nodes', 'edges', 'pois', 'destinationTypes', 'landmarks', 'qrcodes', 'spaces'];
 const BASE_URL = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
 
 function cleanGroupId(value) {
@@ -34,6 +34,12 @@ function copyCollections(targetBuildingId, collections) {
   const floorIdMap = new Map();
   const nodeIdMap = new Map();
   const transitionGroupIdMap = new Map();
+  const spaceIdMap = new Map();
+  const spaces = (collections.spaces || []).map((space) => {
+    const id = nextId('space');
+    spaceIdMap.set(space.id, id);
+    return { ...space, id };
+  });
 
   const floors = collections.floors.map((floor) => {
     const id = nextId('floor');
@@ -51,6 +57,8 @@ function copyCollections(targetBuildingId, collections) {
       ...node,
       id,
       floorId: remapRef(node.floorId, floorIdMap),
+      spaceId: remapRef(node.spaceId, spaceIdMap),
+      boundarySpaceIds: (node.boundarySpaceIds || []).map((id) => remapRef(id, spaceIdMap)),
       transitionGroupId: remapRef(node.transitionGroupId, transitionGroupIdMap),
     };
   });
@@ -60,6 +68,7 @@ function copyCollections(targetBuildingId, collections) {
     id: nextId('edge'),
     from: remapRef(edge.from, nodeIdMap),
     to: remapRef(edge.to, nodeIdMap),
+    spaceId: remapRef(edge.spaceId, spaceIdMap),
   }));
 
   const pois = collections.pois.map((poi) => ({
@@ -77,6 +86,7 @@ function copyCollections(targetBuildingId, collections) {
     ...landmark,
     id: nextId('landmark'),
     floorId: remapRef(landmark.floorId, floorIdMap),
+    spaceId: remapRef(landmark.spaceId, spaceIdMap),
   }));
 
   const qrcodes = collections.qrcodes.map((qr) => {
@@ -95,7 +105,7 @@ function copyCollections(targetBuildingId, collections) {
     destinationTypeId: poi.destinationTypeId ? destinationTypeIdMap.get(poi.destinationTypeId) || null : null,
   }));
 
-  return { floors, nodes, edges, pois: poisWithDestinationTypes, destinationTypes, landmarks, qrcodes };
+  return { floors, nodes, edges, pois: poisWithDestinationTypes, destinationTypes, landmarks, qrcodes, spaces };
 }
 
 buildingsRouter.get('/', async (req, res) => {

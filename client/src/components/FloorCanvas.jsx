@@ -49,6 +49,7 @@ export default function FloorCanvas({
   poiNodeIds,
   qrNodeIds = new Set(),
   selectedNodeId,
+  highlightedNodeIds = [],
   selectedEdgeId,
   highlightedEdgeIds,
   draftPoints = [],
@@ -592,7 +593,7 @@ export default function FloorCanvas({
               ))}
 
               {displayNodes.map((node) => {
-                const isSelected = node.id === selectedNodeId;
+                const isSelected = node.id === selectedNodeId || highlightedNodeIds.includes(node.id);
                 const isPoi = poiNodeIds.has(node.id);
                 const hasQrCode = qrNodeIds.has(node.id);
                 return (

@@ -13,6 +13,7 @@ import { destinationTypesRouter } from './routes/destinationTypes.js';
 import { landmarksRouter } from './routes/landmarks.js';
 import { qrcodesRouter } from './routes/qrcodes.js';
 import { wayfindRouter } from './routes/wayfind.js';
+import { spacesRouter } from './routes/spaces.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -28,6 +29,7 @@ api.use('/groups', groupsRouter);
 
 const buildingSubresources = Router({ mergeParams: true });
 buildingSubresources.use('/floors', floorsRouter);
+buildingSubresources.use('/spaces', spacesRouter);
 buildingSubresources.use('/nodes', nodesRouter);
 buildingSubresources.use('/edges', edgesRouter);
 buildingSubresources.use('/pois', poisRouter);

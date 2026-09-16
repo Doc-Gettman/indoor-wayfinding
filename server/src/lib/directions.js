@@ -1,3 +1,5 @@
+import { routeSpaceContexts, boundaryInstruction, spaceName, resolveEdgeSpace } from '../../../shared/spaces.js';
+
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const POI_ANNOTATION_MAX_DISTANCE_PX = 60;
 const DEFAULT_LANDMARK_VISIBILITY_FEET = 30;
@@ -28,9 +30,13 @@ function clockDirection(diff) {
   return ((hourOffset + 11) % 12) + 1;
 }
 
-function distanceText(pixels, pixelsPerFoot) {
+function distanceText(pixels, pixelsPerFoot, space) {
   const feet = pixels / pixelsPerFoot;
   if (feet < 3) return null;
+  if (space?.layout !== 'corridor' || space.environment === 'outdoor' || (space.descriptiveTerm && !/^(hallway|hall|corridor)$/i.test(space.descriptiveTerm))) {
+    if (feet < 12) return 'a few steps';
+    return feet < 60 ? 'a little farther' : 'farther ahead';
+  }
   if (feet < 12) return 'a few steps';
   if (feet < 28) return 'just down the hall';
   if (feet < 60) return 'a little way down the hall';
@@ -119,6 +125,8 @@ function assignLandmarksToClosestSegment(pathNodes, pathEdges, landmarks, floors
     const pixelsPerFoot = floorsById.get(from.floorId)?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT;
     for (const landmark of landmarks) {
       if (landmark.floorId !== from.floorId) continue;
+      const spaceId = resolveEdgeSpace(edge, from, to).spaceId;
+      if (landmark.spaceId && spaceId && landmark.spaceId !== spaceId) continue;
       const distance = distanceToSegment(from, to, landmark);
       const visibilityRadiusFeet = Math.max(1, Number(landmark.visibilityRadiusFeet) || DEFAULT_LANDMARK_VISIBILITY_FEET);
       if (distance > visibilityRadiusFeet * pixelsPerFoot) continue;
@@ -178,7 +186,9 @@ function poiAnnotationsForSegment(from, to, pois, pathNodeIds) {
   return annotations;
 }
 
-export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, pois, floorsById, landmarks = [] }) {
+export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = pathNodes, pois, floorsById, landmarks = [], spaces = [] }) {
+  const spaceContexts = routeSpaceContexts(pathNodes, pathEdges, spaces);
+  const mentionedSpaces = new Set();
   const pathNodeIds = new Set(pathNodes.map((n) => n.id));
   const poiByNodeId = new Map(pois.map((p) => [p.nodeId, p]));
   const poisWithNodes = pois
@@ -195,7 +205,7 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
   function flushSegment() {
     if (!segment) return;
     const floor = floorsById.get(segment.floorId);
-    const dist = distanceText(segment.pixels, floor?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT);
+    const dist = distanceText(segment.pixels, floor?.pixelsPerFoot || DEFAULT_PIXELS_PER_FOOT, segment.space);
     let text;
     if (segment.exitContext) {
       // Right after an elevator/stairs arrival: never claim a left/right
@@ -219,6 +229,11 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
     } else {
       text = `${turnText(segment.label, segment.side)}${dist ? `, then ${continueText(dist)}` : ''}`;
     }
+    if (segment.space && !mentionedSpaces.has(segment.space.id)) {
+      text += ` through ${spaceName(segment.space)}`;
+      mentionedSpaces.add(segment.space.id);
+    }
+    if (segment.target) text += ` toward ${segment.target}`;
     if (segment.annotations.length) {
       text += `. ${segment.annotations.join('. ')}`;
     }
@@ -267,6 +282,14 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
       continue;
     }
 
+    const currentSpace = spaceContexts[i];
+    if (segment && segment.space?.id !== currentSpace?.id) flushSegment();
+    const crossing = i > 0 ? boundaryInstruction(spaceContexts[i - 1], currentSpace) : null;
+    if (crossing && from.nodeType !== 'door') {
+      flushSegment();
+      instructions.push(crossing);
+      mentionedSpaces.add(currentSpace.id);
+    }
     const heading = bearing(from, to);
     const annotations = [
       ...poiAnnotationsForSegment(from, to, poisWithNodes, pathNodeIds),
@@ -286,6 +309,8 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
     }
 
     const pixels = Math.hypot(to.x - from.x, to.y - from.y);
+    segment.space = currentSpace;
+    segment.target = to.nodeType === 'transition' ? to.transitionGroupName || to.label || `the ${to.transitionSubtype || 'landing'}` : null;
     segment.pixels += pixels;
     segment.annotations.push(...annotations);
     prevHeading = heading;
@@ -301,11 +326,17 @@ export function generateDirections({ pathNodes, pathEdges, allEdges, allNodes = 
         freeBadgeDoorsCrossed.push(to);
       }
       const next = pathNodes[i + 2];
+      const crossing = next ? boundaryInstruction(currentSpace, spaceContexts[i + 1]) : null;
+      const outside = crossing && currentSpace.environment === 'indoor' && spaceContexts[i + 1].environment === 'outdoor';
+      const inside = crossing && currentSpace.environment === 'outdoor' && spaceContexts[i + 1].environment === 'indoor';
+      const boundaryText = crossing ? ` into ${spaceName(spaceContexts[i + 1])}` : '';
+      const doorAction = `${badgeNeededThisWay ? 'Use your badge and go' : 'Go'} ${outside ? 'outside ' : inside ? 'inside ' : ''}through ${text}${boundaryText}`;
+      if (crossing) mentionedSpaces.add(spaceContexts[i + 1].id);
       if (next) {
         const nextDiff = normalizeAngleDiff(bearing(to, next) - heading);
-        instructions.push(`Open ${text}, then ${directionCue(nextDiff)}`);
+        instructions.push(`${doorAction}, then ${directionCue(nextDiff)}`);
       } else {
-        instructions.push(`Open ${text}`);
+        instructions.push(doorAction);
       }
       prevHeading = null;
     }

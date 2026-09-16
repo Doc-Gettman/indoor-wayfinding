@@ -7,7 +7,7 @@ import { getCachedRoute, setCachedRoute } from '../lib/routeCache.js';
 
 export const wayfindRouter = Router({ mergeParams: true });
 
-const ROUTING_VERSION = 12;
+const ROUTING_VERSION = 13;
 const DEFAULT_PIXELS_PER_FOOT = 10;
 const WALKING_FEET_PER_SECOND = 3;
 const ELEVATOR_BASE_SECONDS = 45;
@@ -151,13 +151,14 @@ wayfindRouter.get('/', async (req, res) => {
   const cached = getCachedRoute(buildingId, from, to, avoidStairs);
   if (cached?.routeMap && cached.routingVersion === ROUTING_VERSION) return res.json(cached);
 
-  const [nodes, edges, pois, floors, landmarks, qrcodes] = await Promise.all([
+  const [nodes, edges, pois, floors, landmarks, qrcodes, spaces] = await Promise.all([
     getCollection(buildingId, 'nodes'),
     getCollection(buildingId, 'edges'),
     getCollection(buildingId, 'pois'),
     getCollection(buildingId, 'floors'),
     getCollection(buildingId, 'landmarks'),
     getCollection(buildingId, 'qrcodes'),
+    getCollection(buildingId, 'spaces'),
   ]);
 
   const destinationPoi = pois.find((p) => p.id === to);
@@ -179,6 +180,7 @@ wayfindRouter.get('/', async (req, res) => {
     allNodes: nodes,
     floorsById,
     landmarks,
+    spaces,
     destination: destinationPoi,
     origin: originNode
       ? {
@@ -198,6 +200,7 @@ wayfindRouter.get('/', async (req, res) => {
       pois,
       floorsById,
       landmarks,
+      spaces,
     });
   const estimatedTravelSeconds = estimateTravelSeconds(result.nodes, result.edges, floorsById);
   const instructionsWithTravelTime = [...instructions, travelTimeText(estimatedTravelSeconds)];

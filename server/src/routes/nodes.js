@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getCollection, saveCollection, nextId } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { syncTransitionEdges, removeTransitionEdges } from '../lib/transitions.js';
+import { validateAssignment, reconcileSpaceEdges } from '../../../shared/spaces.js';
 
 export const nodesRouter = Router({ mergeParams: true });
 
@@ -46,7 +47,11 @@ nodesRouter.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'floorId, x, and y are required' });
   }
   const nodes = await getCollection(req.params.buildingId, 'nodes');
+  const assignment = { spaceId: req.body.spaceId ?? null, boundarySpaceIds: req.body.boundarySpaceIds ?? [] };
+  const assignmentError = validateAssignment(assignment, await getCollection(req.params.buildingId, 'spaces'));
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
   const node = {
+    ...assignment,
     id: nextId('node'),
     floorId,
     x,
@@ -81,6 +86,9 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
   const index = nodes.findIndex((n) => n.id === req.params.nodeId);
   if (index === -1) return res.status(404).json({ error: 'Node not found' });
   const positionChanged = req.body?.x !== undefined || req.body?.y !== undefined;
+  const spaceChanged = req.body?.spaceId !== undefined || req.body?.boundarySpaceIds !== undefined;
+  const assignmentError = validateAssignment({ ...nodes[index], ...req.body }, await getCollection(req.params.buildingId, 'spaces'));
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
   nodes[index] = { ...nodes[index], ...req.body, id: nodes[index].id };
   if (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId && req.body?.transitionGroupName !== undefined) {
     for (const node of nodes) {
@@ -91,7 +99,7 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
   }
   await saveCollection(req.params.buildingId, 'nodes', nodes);
 
-  if (positionChanged || (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId)) {
+  if (positionChanged || spaceChanged || (nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId)) {
     const [edges, floors] = await Promise.all([
       getCollection(req.params.buildingId, 'edges'),
       getCollection(req.params.buildingId, 'floors'),
@@ -101,7 +109,7 @@ nodesRouter.put('/:nodeId', requireAdmin, async (req, res) => {
       nodes[index].nodeType === 'transition' && nodes[index].transitionGroupId
         ? syncTransitionEdges(nodes, weightedEdges, nodes[index], new Map(floors.map((f) => [f.id, f])))
         : weightedEdges;
-    await saveCollection(req.params.buildingId, 'edges', updated);
+    await saveCollection(req.params.buildingId, 'edges', spaceChanged ? reconcileSpaceEdges(nodes, updated, new Set([nodes[index].id])) : updated);
   }
 
   res.json(nodes[index]);

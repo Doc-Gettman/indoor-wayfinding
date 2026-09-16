@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getCollection, saveCollection, nextId } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { validateAssignment } from '../../../shared/spaces.js';
 
 export const landmarksRouter = Router({ mergeParams: true });
 
@@ -20,7 +21,11 @@ landmarksRouter.post('/', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'floorId, x, and y are required' });
   }
   const landmarks = await getCollection(req.params.buildingId, 'landmarks');
+  const assignment = { spaceId: req.body.spaceId ?? null };
+  const assignmentError = validateAssignment(assignment, await getCollection(req.params.buildingId, 'spaces'), false);
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
   const landmark = {
+    ...assignment,
     id: nextId('landmark'),
     floorId,
     x,
@@ -38,6 +43,8 @@ landmarksRouter.put('/:landmarkId', requireAdmin, async (req, res) => {
   const landmarks = await getCollection(req.params.buildingId, 'landmarks');
   const index = landmarks.findIndex((l) => l.id === req.params.landmarkId);
   if (index === -1) return res.status(404).json({ error: 'Landmark not found' });
+  const assignmentError = validateAssignment({ ...landmarks[index], ...req.body }, await getCollection(req.params.buildingId, 'spaces'), false);
+  if (assignmentError) return res.status(400).json({ error: assignmentError });
   landmarks[index] = { ...landmarks[index], ...req.body, id: landmarks[index].id };
   await saveCollection(req.params.buildingId, 'landmarks', landmarks);
   res.json(landmarks[index]);

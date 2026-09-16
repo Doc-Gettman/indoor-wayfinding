@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import FloorCanvas from '../components/FloorCanvas.jsx';
+import SpacesPanel, { SpaceAssignment, SpaceSelect } from '../components/SpaceFields.jsx';
+import { resolveEdgeSpace, validateAssignment, nodeSpaceIds } from '../../../shared/spaces.js';
 
 function refEquals(a, b) {
   if (!a || !b) return a === b;
@@ -24,6 +26,10 @@ const EMPTY_EDGE_ID_SET = new Set();
 export default function FloorEditor() {
   const { buildingId, floorId } = useParams();
 
+  const [spaces, setSpaces] = useState([]);
+  const [activeSpaceId, setActiveSpaceId] = useState(null);
+  const [pendingBoundary, setPendingBoundary] = useState(null);
+  const [bulkNodeIds, setBulkNodeIds] = useState([]);
   const [building, setBuilding] = useState(null);
   const [floors, setFloors] = useState([]);
   const [buildingNodes, setBuildingNodes] = useState([]);
@@ -61,6 +67,7 @@ export default function FloorEditor() {
   const [calibrationSaving, setCalibrationSaving] = useState(false);
 
   const refresh = useCallback(() => {
+    api.listSpaces(buildingId).then(setSpaces).catch((err) => setError(err.message));
     api.getBuilding(buildingId).then(setBuilding).catch((err) => setError(err.message));
     api.listFloors(buildingId).then(setFloors).catch((err) => setError(err.message));
     api.listNodes(buildingId).then(setBuildingNodes).catch((err) => setError(err.message));
@@ -73,6 +80,9 @@ export default function FloorEditor() {
 
   useEffect(refresh, [refresh]);
   useEffect(() => {
+    setActiveSpaceId(null);
+    setPendingBoundary(null);
+    setBulkNodeIds([]);
     setQrOriginNodeId('');
     setQrLabel('');
     setHighlightedQrId(null);
@@ -149,6 +159,7 @@ export default function FloorEditor() {
   );
 
   function resetChain() {
+    setPendingBoundary(null);
     setMode('select');
     setSeedAnchor(null);
     setChainAnchor(null);
@@ -160,6 +171,7 @@ export default function FloorEditor() {
 
   function handleStartFreshChain() {
     if (draftPoints.length > 0 && !confirm('Discard the waypoints you have not saved yet?')) return;
+    setPendingBoundary(null);
     setMode('chain');
     setSeedAnchor(null);
     setChainAnchor(null);
@@ -171,6 +183,9 @@ export default function FloorEditor() {
   }
 
   function handleStartChainFromNode(nodeId) {
+    const node = buildingNodes.find((item) => item.id === nodeId);
+    if (node?.boundarySpaceIds?.length) setPendingBoundary(node);
+    else { setActiveSpaceId(node?.spaceId || null); setPendingBoundary(null); }
     const anchor = { type: 'existing', id: nodeId };
     setMode('chain');
     setSeedAnchor(anchor);
@@ -282,9 +297,15 @@ export default function FloorEditor() {
   }
 
   function handleCanvasClick(x, y) {
+    if (saving || pendingBoundary) return;
+    const anchorPoint = chainAnchor?.type === 'draft' ? draftPoints.find((p) => p.tempId === chainAnchor.tempId) : buildingNodes.find((n) => n.id === chainAnchor?.id);
+    if (anchorPoint && validateAssignment(anchorPoint, spaces)) { setError('Choose both sides of the boundary before continuing.'); return; }
+    if (anchorPoint && nodeSpaceIds(anchorPoint).length && !nodeSpaceIds(anchorPoint).includes(activeSpaceId)) { setError('Mark the last waypoint as connecting to another space before drawing into a different space.'); return; }
     const tempId = crypto.randomUUID();
     const newPoint = {
       tempId,
+      spaceId: activeSpaceId,
+      boundarySpaceIds: [],
       x,
       y,
       label: '',
@@ -302,7 +323,7 @@ export default function FloorEditor() {
     setDraftPoints((prev) => [...prev, newPoint]);
     const to = { type: 'draft', tempId };
     if (chainAnchor) {
-      setDraftEdges((prev) => [...prev, { from: chainAnchor, to }]);
+      setDraftEdges((prev) => [...prev, { from: chainAnchor, to, spaceId: activeSpaceId }]);
     }
     setChainAnchor(to);
     setSelectedDraftId(tempId);
@@ -315,9 +336,20 @@ export default function FloorEditor() {
       return;
     }
     if (mode === 'chain') {
+      if (saving || pendingBoundary) return;
+      const target = buildingNodes.find((node) => node.id === nodeId);
+      const anchorPoint = chainAnchor?.type === 'draft' ? draftPoints.find((p) => p.tempId === chainAnchor.tempId) : buildingNodes.find((n) => n.id === chainAnchor?.id);
+      if (chainAnchor) {
+        const assignmentError = validateAssignment(anchorPoint || {}, spaces);
+        if (assignmentError) { setError(assignmentError); return; }
+        const context = resolveEdgeSpace({ spaceId: activeSpaceId }, anchorPoint, target);
+        if (context.error) { setError(context.error); return; }
+      }
+      if (target?.boundarySpaceIds?.length) setPendingBoundary(target);
+      else setActiveSpaceId(target?.spaceId || null);
       const to = { type: 'existing', id: nodeId };
       if (chainAnchor && !refEquals(chainAnchor, to)) {
-        setDraftEdges((prev) => [...prev, { from: chainAnchor, to }]);
+        setDraftEdges((prev) => [...prev, { from: chainAnchor, to, spaceId: activeSpaceId }]);
       }
       setChainAnchor(to);
       return;
@@ -330,7 +362,7 @@ export default function FloorEditor() {
 
   async function handleLandmarkPlace(x, y) {
     try {
-      const landmark = await api.createLandmark(buildingId, { floorId, x, y, name: '', description: '' });
+      const landmark = await api.createLandmark(buildingId, { floorId, x, y, name: '', description: '', spaceId: activeSpaceId });
       refresh();
       setSelectedLandmarkId(landmark.id);
       setMode('select');
@@ -375,13 +407,33 @@ export default function FloorEditor() {
     if (draftPoints.length === 0) return;
     const removed = draftPoints[draftPoints.length - 1];
     const remaining = draftPoints.slice(0, -1);
+    const anchor = remaining.at(-1) || buildingNodes.find((node) => node.id === seedAnchor?.id);
+    setPendingBoundary(anchor?.boundarySpaceIds?.length ? anchor : null);
+    setActiveSpaceId(anchor?.spaceId || null);
     setDraftPoints(remaining);
-    setDraftEdges((prev) => prev.filter((e) => !(e.to.type === 'draft' && e.to.tempId === removed.tempId)));
+    setDraftEdges((prev) => prev.filter((e) => ![e.from, e.to].some((ref) => ref.type === 'draft' && ref.tempId === removed.tempId)));
     setChainAnchor(remaining.length > 0 ? { type: 'draft', tempId: remaining[remaining.length - 1].tempId } : seedAnchor);
     setSelectedDraftId(remaining.length > 0 ? remaining[remaining.length - 1].tempId : null);
   }
 
   function handleUpdateDraftPoint(tempId, patch) {
+    const updatedPoints = draftPoints.map((point) => point.tempId === tempId ? { ...point, ...patch } : point);
+    if (patch.spaceId !== undefined || patch.boundarySpaceIds !== undefined) {
+      const resolvePoint = (ref) => ref.type === 'existing' ? buildingNodes.find((node) => node.id === ref.id) : updatedPoints.find((point) => point.tempId === ref.tempId);
+      setDraftEdges((prev) => prev.map((edge) => {
+        if (![edge.from, edge.to].some((ref) => ref.tempId === tempId)) return edge;
+        let context = resolveEdgeSpace(edge, resolvePoint(edge.from), resolvePoint(edge.to));
+        if (context.error) context = resolveEdgeSpace({ spaceId: null }, resolvePoint(edge.from), resolvePoint(edge.to));
+        return { ...edge, spaceId: context.spaceId };
+      }));
+    }
+    if (chainAnchor?.tempId === tempId) {
+      if (patch.boundarySpaceIds?.[0] && patch.boundarySpaceIds?.[1]) {
+        setActiveSpaceId(patch.boundarySpaceIds[1]);
+        setPendingBoundary(null);
+      }
+      else if (patch.spaceId !== undefined && !patch.boundarySpaceIds?.length) setActiveSpaceId(patch.spaceId);
+    }
     setDraftPoints((prev) => prev.map((p) => (p.tempId === tempId ? { ...p, ...patch } : p)));
   }
 
@@ -389,6 +441,15 @@ export default function FloorEditor() {
     setSaving(true);
     setError(null);
     try {
+      for (const point of draftPoints) {
+        const error = validateAssignment(point, spaces);
+        if (error) throw new Error(error);
+      }
+      const resolvePoint = (ref) => ref.type === 'existing' ? buildingNodes.find((node) => node.id === ref.id) : draftPoints.find((point) => point.tempId === ref.tempId);
+      for (const edge of draftEdges) {
+        const context = resolveEdgeSpace(edge, resolvePoint(edge.from), resolvePoint(edge.to));
+        if (context.error) throw new Error(context.error);
+      }
       const idMap = new Map();
       for (const point of draftPoints) {
         const transitionGroupId = point.nodeType === 'transition' ? point.transitionGroupId || crypto.randomUUID() : null;
@@ -396,6 +457,8 @@ export default function FloorEditor() {
           floorId,
           x: point.x,
           y: point.y,
+          spaceId: point.spaceId || null,
+          boundarySpaceIds: point.boundarySpaceIds || [],
           label: point.nodeType === 'destination' ? point.poiName : point.label,
           nodeType: point.nodeType,
           transitionSubtype: point.nodeType === 'transition' ? point.transitionSubtype : null,
@@ -419,7 +482,7 @@ export default function FloorEditor() {
         return ref.type === 'existing' ? ref.id : idMap.get(ref.tempId);
       }
       for (const edge of draftEdges) {
-        await api.createEdge(buildingId, { from: resolveRealId(edge.from), to: resolveRealId(edge.to), type: 'hallway' });
+        await api.createEdge(buildingId, { from: resolveRealId(edge.from), to: resolveRealId(edge.to), type: 'walk', spaceId: edge.spaceId || null });
       }
       resetChain();
       refresh();
@@ -487,14 +550,15 @@ export default function FloorEditor() {
     try {
       const created = await api.createNode(buildingId, {
         floorId: from.floorId,
+        spaceId: edge.spaceId || null,
         x: point?.x ?? Math.round((from.x + to.x) / 2),
         y: point?.y ?? Math.round((from.y + to.y) / 2),
         label: '',
         nodeType: 'waypoint',
       });
-      const type = from.nodeType === 'door' || to.nodeType === 'door' ? 'hallway' : edge.type;
-      await api.createEdge(buildingId, { from: from.id, to: created.id, type });
-      await api.createEdge(buildingId, { from: created.id, to: to.id, type });
+      const type = from.nodeType === 'door' || to.nodeType === 'door' ? 'walk' : edge.type;
+      await api.createEdge(buildingId, { from: from.id, to: created.id, type, spaceId: edge.spaceId || null });
+      await api.createEdge(buildingId, { from: created.id, to: to.id, type, spaceId: edge.spaceId || null });
       await api.deleteEdge(buildingId, edge.id);
       setSelectedEdgeId(null);
       setEdgeSplitPoint(null);
@@ -602,8 +666,19 @@ export default function FloorEditor() {
               </button>
             </div>
 
+            <SpacesPanel key={floorId} buildingId={buildingId} spaces={spaces} activeSpaceId={activeSpaceId}
+              onActiveChange={setActiveSpaceId} nodes={floorNodes} landmarks={floorLandmarks} pois={pois}
+              onHighlightNodes={setBulkNodeIds}
+              onChanged={(space) => { if (space) setSpaces((prev) => [...prev.filter((s) => s.id !== space.id), space]); refresh(); }} />
+            {pendingBoundary && mode === 'chain' && <div className="card">
+              <SpaceSelect label="Which space are you continuing into?" spaces={spaces.filter((space) => pendingBoundary.boundarySpaceIds.includes(space.id))}
+                value={null} allowUnspecified={false} onChange={(id) => { setActiveSpaceId(id); setPendingBoundary(null); }} />
+              <p className="muted">Choose a side before adding the next point.</p>
+            </div>}
+            {floorEdges.some((edge) => edge.needsSpaceReview) && <p className="error">Some connections need space review. Select a flagged connection to fix its boundary or assignment.</p>}
             {mode === 'chain' ? (
               <ChainPanel
+                spaces={spaces}
                 draftPoints={draftPoints}
                 selectedDraftPoint={selectedDraftPoint}
                 floors={floors}
@@ -647,7 +722,8 @@ export default function FloorEditor() {
               />
             ) : selectedLandmark ? (
               <LandmarkPanel
-                key={selectedLandmark.id}
+                key={`${selectedLandmark.id}:${selectedLandmark.spaceId || ''}`}
+                spaces={spaces}
                 landmark={selectedLandmark}
                 floor={floor}
                 buildingId={buildingId}
@@ -659,7 +735,8 @@ export default function FloorEditor() {
               />
             ) : selectedNode ? (
               <NodePanel
-                key={selectedNode.id}
+                key={`${selectedNode.id}:${selectedNode.spaceId || ''}:${(selectedNode.boundarySpaceIds || []).join(',')}`}
+                spaces={spaces}
                 node={selectedNode}
                 poi={poiByNodeId.get(selectedNode.id)}
                 floors={floors}
@@ -678,6 +755,7 @@ export default function FloorEditor() {
               />
             ) : selectedEdge ? (
               <EdgePanel
+                spaces={spaces}
                 edge={selectedEdge}
                 from={selectedEdgeFrom}
                 to={selectedEdgeTo}
@@ -709,6 +787,7 @@ export default function FloorEditor() {
               qrNodeIds={qrNodeIds}
               selectedEdgeId={selectedEdgeId}
               highlightedEdgeIds={highlightedEdgeIds}
+              highlightedNodeIds={bulkNodeIds}
               selectedNodeId={
                 mode === 'qr'
                   ? highlightedQrNodeId || qrOriginNodeId
@@ -756,7 +835,7 @@ export default function FloorEditor() {
                     }}
                   >
                     <span>
-                      {e.type} ({Math.round(e.weight)}px)
+                      {e.type === 'hallway' ? 'walk' : e.type} ({Math.round(e.weight)}px) {e.needsSpaceReview && ' - Review space boundary'}
                       {e.generatedByTransitionGroup && (
                         <span className="muted"> — managed by the elevator/stairs group, edit via the linked landings</span>
                       )}
@@ -832,7 +911,7 @@ function EdgeListPanel({ edges, selectedEdgeId, selectedEdgeIndex, selectedEdgeR
                     onClick={() => onSelectEdge(edge.id)}
                   >
                     <span>
-                      <strong>#{index + 1}</strong> {edge.type} ({Math.round(edge.weight)}px)
+                      <strong>#{index + 1}</strong> {edge.type === 'hallway' ? 'walk' : edge.type} ({Math.round(edge.weight)}px) {edge.needsSpaceReview && ' - Review space boundary'}
                       {edge.requiresBadgeAccess && <span className="muted"> - badge access</span>}
                       {edge.generatedByTransitionGroup && (
                         <span className="muted"> - managed by the elevator/stairs group</span>
@@ -861,14 +940,16 @@ function EdgeListPanel({ edges, selectedEdgeId, selectedEdgeIndex, selectedEdgeR
   );
 }
 
-function EdgePanel({ edge, from, to, saving, splitPoint, onUpdate, onInsertWaypoint, onDelete }) {
-  const [type, setType] = useState(edge.type || 'hallway');
-  const canEdit = edge && !edge.generatedByTransitionGroup && (edge.type === 'hallway' || edge.type === 'door') && from && to;
-  const hasTypeChange = type !== edge.type;
+function EdgePanel({ spaces, edge, from, to, saving, splitPoint, onUpdate, onInsertWaypoint, onDelete }) {
+  const [type, setType] = useState(edge.type || 'walk');
+  const [spaceId, setSpaceId] = useState(edge.spaceId || null);
+  const canEdit = edge && !edge.generatedByTransitionGroup && (['walk', 'hallway', 'door'].includes(edge.type)) && from && to;
+  const hasTypeChange = type !== edge.type || spaceId !== (edge.spaceId || null) || edge.needsSpaceReview;
 
   useEffect(() => {
-    setType(edge.type || 'hallway');
-  }, [edge.id, edge.type]);
+    setType(edge.type || 'walk');
+    setSpaceId(edge.spaceId || null);
+  }, [edge.id, edge.type, edge.spaceId]);
 
   return (
     <div className="card">
@@ -889,6 +970,8 @@ function EdgePanel({ edge, from, to, saving, splitPoint, onUpdate, onInsertWaypo
         </p>
       ) : (
         <>
+          <SpaceSelect spaces={spaces} value={spaceId} onChange={setSpaceId} label="Space traversed" />
+          {edge.needsSpaceReview && <p className="error">Review the space assignment. If this crosses two spaces, add a waypoint at the boundary and mark its two sides.</p>}
           <label className="muted" htmlFor="edge-type">Type</label>
           <div className="row" style={{ marginBottom: 12 }}>
             <select
@@ -898,20 +981,21 @@ function EdgePanel({ edge, from, to, saving, splitPoint, onUpdate, onInsertWaypo
               disabled={saving}
               style={{ flex: 1 }}
             >
-              <option value="hallway">Hallway</option>
+              <option value="walk">Walking connection</option>
+              {type === 'hallway' && <option value="hallway">Walking connection (legacy)</option>}
               <option value="door">Door threshold</option>
             </select>
             <button
               type="button"
               className="primary"
-              onClick={() => onUpdate({ type })}
+              onClick={() => onUpdate({ type, spaceId })}
               disabled={!canEdit || !hasTypeChange || saving}
             >
-              Save type
+              Save connection
             </button>
           </div>
           <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
-            Use door threshold only for very short links between a door and the hallway centerline.
+            Use door threshold only for very short links between a door and the walking path.
           </p>
           <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
             {splitPoint
@@ -1055,6 +1139,7 @@ function CalibratePanel({ floor, points, pixelDistance, feet, onFeetChange, onSa
 }
 
 function ChainPanel({
+  spaces,
   draftPoints,
   selectedDraftPoint,
   floors,
@@ -1100,6 +1185,7 @@ function ChainPanel({
       {selectedDraftPoint && (
         <DraftPointFields
           key={selectedDraftPoint.tempId}
+          spaces={spaces}
           point={selectedDraftPoint}
           floors={floors}
           buildingNodes={buildingNodes}
@@ -1125,9 +1211,10 @@ function ChainPanel({
   );
 }
 
-function DraftPointFields({ point, floors, buildingNodes, currentFloorId, destinationTypes, onUpdate }) {
+function DraftPointFields({ spaces, point, floors, buildingNodes, currentFloorId, destinationTypes, onUpdate }) {
   return (
     <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+      <SpaceAssignment value={point} spaces={spaces} onChange={(patch) => onUpdate(point.tempId, patch)} />
       <label className="muted" htmlFor="draft-type">Type</label>
       <select
         id="draft-type"
@@ -1420,6 +1507,7 @@ function TransitionLinkPicker({ floors, buildingNodes, excludeNodeId, currentFlo
 }
 
 function NodePanel({
+  spaces,
   node,
   poi,
   floors,
@@ -1433,6 +1521,9 @@ function NodePanel({
   onStartChain,
   onHighlightEdges,
 }) {
+  const [spaceAssignment, setSpaceAssignment] = useState({ spaceId: node.spaceId || null, boundarySpaceIds: node.boundarySpaceIds || [] });
+  const spaceAssignmentChanged = (spaceAssignment.spaceId || null) !== (node.spaceId || null)
+    || JSON.stringify(spaceAssignment.boundarySpaceIds) !== JSON.stringify(node.boundarySpaceIds || []);
   const [label, setLabel] = useState(node.label || '');
   const [nodeType, setNodeType] = useState(node.nodeType || 'waypoint');
   const [transitionSubtype, setTransitionSubtype] = useState(node.transitionSubtype || 'elevator');
@@ -1460,6 +1551,7 @@ function NodePanel({
     setError(null);
     try {
       const patch = {
+        ...spaceAssignment,
         label: nodeType === 'destination' ? poiName : label,
         nodeType,
         doorDescription: nodeType === 'door' ? doorDescription : null,
@@ -1552,6 +1644,8 @@ function NodePanel({
   return (
     <div className="card">
       <h2>Waypoint details</h2>
+      <SpaceAssignment value={spaceAssignment} spaces={spaces} onChange={(patch) => setSpaceAssignment((prev) => ({ ...prev, ...patch }))} />
+      <p className="muted">Destinations inherit this point's space. Save changes before continuing a chain.</p>
       <label className="muted" htmlFor="node-type">Type</label>
       <select id="node-type" value={nodeType} onChange={(e) => setNodeType(e.target.value)} style={{ width: '100%', marginBottom: 8 }}>
         <option value="waypoint">Waypoint</option>
@@ -1698,7 +1792,7 @@ function NodePanel({
         <button type="button" className="primary" onClick={handleSave} disabled={nodeType === 'destination' && !poiName.trim()}>
           Save
         </button>
-        <button type="button" onClick={onStartChain}>
+        <button type="button" onClick={onStartChain} disabled={spaceAssignmentChanged}>
           Continue chain from here
         </button>
         <button type="button" className="danger" onClick={handleDelete}>
@@ -1815,7 +1909,8 @@ function DoorBadgeDirectionPicker({ node, buildingEdges, buildingNodes, poiByNod
   );
 }
 
-function LandmarkPanel({ landmark, floor, buildingId, onChanged, onDeleted }) {
+function LandmarkPanel({ spaces, landmark, floor, buildingId, onChanged, onDeleted }) {
+  const [spaceId, setSpaceId] = useState(landmark.spaceId || null);
   const [name, setName] = useState(landmark.name || '');
   const [description, setDescription] = useState(landmark.description || '');
   const [visibilityRadiusFeet, setVisibilityRadiusFeet] = useState(String(landmark.visibilityRadiusFeet || 30));
@@ -1825,6 +1920,7 @@ function LandmarkPanel({ landmark, floor, buildingId, onChanged, onDeleted }) {
     setError(null);
     try {
       await api.updateLandmark(buildingId, landmark.id, {
+        spaceId,
         name,
         description,
         visibilityRadiusFeet: Math.max(1, Number(visibilityRadiusFeet) || 30),
@@ -1848,6 +1944,7 @@ function LandmarkPanel({ landmark, floor, buildingId, onChanged, onDeleted }) {
   return (
     <div className="card">
       <h2>Landmark details</h2>
+      <SpaceSelect spaces={spaces} value={spaceId} onChange={setSpaceId} />
       <p className="muted" style={{ marginBottom: 8 }}>
         Landmarks are visual references (a sign, a distinctive door, a desk) used to make generated directions sound
         natural — they aren't part of the walking route itself.
