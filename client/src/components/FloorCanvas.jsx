@@ -11,7 +11,6 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.25;
 const DRAG_THRESHOLD_PX = 3;
-const NODE_LONG_PRESS_MS = 450;
 const PAN_PADDING_FACTOR = 0.5;
 const FOCUS_ZOOM = 1;
 const EDGE_FOCUS_MAX_ZOOM = 1.5;
@@ -80,7 +79,6 @@ export default function FloorCanvas({
   const scrollRef = useRef(null);
   const dragRef = useRef(null);
   const nodeMoveRef = useRef(null);
-  const nodeMoveTimerRef = useRef(null);
   const fittedImageRef = useRef(null);
   const zoomRef = useRef(zoom);
   const [pendingScroll, setPendingScroll] = useState(null);
@@ -321,15 +319,8 @@ export default function FloorCanvas({
     };
   }
 
-  function clearNodeMoveTimer() {
-    if (!nodeMoveTimerRef.current) return;
-    clearTimeout(nodeMoveTimerRef.current);
-    nodeMoveTimerRef.current = null;
-  }
-
   function finishNodeMove(commit) {
     const nodeMove = nodeMoveRef.current;
-    clearNodeMoveTimer();
     if (nodeMove) {
       window.removeEventListener('mousemove', handleWindowNodeMove);
       window.removeEventListener('mouseup', handleWindowNodeUp);
@@ -354,14 +345,7 @@ export default function FloorCanvas({
       origin: { x: node.x, y: node.y },
       current: { x: node.x, y: node.y },
       active: false,
-      cancelled: false,
     };
-    nodeMoveTimerRef.current = setTimeout(() => {
-      const pending = nodeMoveRef.current;
-      if (!pending || pending.cancelled) return;
-      pending.active = true;
-      setMovingNode({ id: pending.nodeId, x: pending.origin.x, y: pending.origin.y });
-    }, NODE_LONG_PRESS_MS);
     window.addEventListener('mousemove', handleWindowNodeMove);
     window.addEventListener('mouseup', handleWindowNodeUp);
   }
@@ -372,11 +356,8 @@ export default function FloorCanvas({
     const dx = e.clientX - nodeMove.startX;
     const dy = e.clientY - nodeMove.startY;
     if (!nodeMove.active) {
-      if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
-        nodeMove.cancelled = true;
-        finishNodeMove(false);
-      }
-      return;
+      if (Math.abs(dx) <= DRAG_THRESHOLD_PX && Math.abs(dy) <= DRAG_THRESHOLD_PX) return;
+      nodeMove.active = true;
     }
     const point = getSvgPoint(e.clientX, e.clientY);
     if (!point) return;
