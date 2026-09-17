@@ -260,6 +260,10 @@ input, select {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  height: calc(100svh - 24px);
 }
 
 .floor-editor-map-toolbar {
@@ -291,7 +295,7 @@ input, select {
 
 .floor-canvas__viewport {
   flex: 1;
-  min-height: 60vh;
+  min-height: 0;
 }
 
 .edge-list-panel {
