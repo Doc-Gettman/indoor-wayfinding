@@ -138,7 +138,13 @@ function buildRouteMap(pathNodes, floorsById) {
 }
 
 // GET /buildings/:buildingId/wayfind?from=<nodeId>&to=<poiId>
-wayfindRouter.get('/', async (req, res) => {
+// Express 4 doesn't forward rejected promises from async handlers, so without
+// this a failed Supabase read leaves the request hanging until Vercel 504s it.
+wayfindRouter.get('/', (req, res, next) => {
+  handleWayfind(req, res).catch(next);
+});
+
+async function handleWayfind(req, res) {
   const { from, to } = req.query;
   if (req.query.avoidStairs !== undefined && !['true', 'false'].includes(req.query.avoidStairs)) {
     return res.status(400).json({ error: 'avoidStairs must be true or false' });
@@ -216,4 +222,4 @@ wayfindRouter.get('/', async (req, res) => {
   };
   setCachedRoute(buildingId, from, to, payload, avoidStairs);
   res.json(payload);
-});
+}

@@ -319,7 +319,10 @@ export async function generateLLMDirections(input) {
           content: `Generate directions from this route data:\n\n${JSON.stringify(description, null, 2)}`,
         },
       ],
-    }, { timeout: 20000 });
+    // No retries and a hard cap well under the Vercel function's 30s
+    // maxDuration (vercel.json) — the SDK's default 2 retries could stretch a
+    // slow call past it and 504 the visitor instead of falling back to rules.
+    }, { timeout: 18000, maxRetries: 0 });
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock) return null;
