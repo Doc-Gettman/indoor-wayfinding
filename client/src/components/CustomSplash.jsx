@@ -1,5 +1,6 @@
-// A building group's custom post-scan splash screen (image + text on a chosen
-// background). Used by the visitor Wayfind page and by the admin preview on
+// A building group's custom post-scan splash screen on a chosen background:
+// the group's image, then its common text (e.g. a slogan), then the
+// building's own text (e.g. "Dallas Office"). Used by the visitor Wayfind page and by the admin preview on
 // the Groups page, so what admins preview is exactly what visitors see.
 
 function readableTextColor(hex) {
@@ -33,7 +34,12 @@ export default function CustomSplash({ splash, onImageSettled, onContinue, previ
           onError={onImageSettled}
         />
       )}
-      {splash.text && <p className="custom-splash__text">{splash.text}</p>}
+      {(splash.groupText || splash.buildingText) && (
+        <div className="custom-splash__texts">
+          {splash.groupText && <p className="custom-splash__text">{splash.groupText}</p>}
+          {splash.buildingText && <p className="custom-splash__building-text">{splash.buildingText}</p>}
+        </div>
+      )}
       <div className="custom-splash__dots" aria-hidden="true">
         <span style={{ background: color }} />
         <span style={{ background: color }} />

@@ -5,12 +5,11 @@ import CustomSplash from './CustomSplash.jsx';
 const TEXT_MAX_LENGTH = 500;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const DEFAULTS = { imageUrl: null, text: '', backgroundColor: '#ffffff', durationSeconds: 3 };
-const GROUP_DEFAULT_PREVIEW = '__group_default__';
 
 // Admin editor for a group's custom QR-scan splash screen. The group owns the
-// shared look (image, background, duration) and default text; each building
-// in the group can have its own text (e.g. "Dallas Office") that replaces
-// the default. Includes a live phone-sized preview per building.
+// shared look (image, background, duration) and common text shown for every
+// building (e.g. a slogan); each building adds its own text shown beneath it
+// (e.g. "Dallas Office"). Includes a live phone-sized preview per building.
 // Text/color/duration/building texts save together; the image uploads (and
 // saves) immediately on selection.
 export default function GroupSplashEditor({ group, buildings, onSaved, onBuildingsSaved }) {
@@ -34,12 +33,14 @@ export default function GroupSplashEditor({ group, buildings, onSaved, onBuildin
   const dirty = groupDirty || dirtyBuildings.length > 0;
   const active = Boolean(saved.imageUrl || saved.text || buildings.some((b) => b.splashText));
 
-  // Preview the first building by default: that's what most visitors see.
-  const previewBuilding =
-    previewId === GROUP_DEFAULT_PREVIEW ? null : buildings.find((b) => b.id === previewId) || buildings[0] || null;
-  const previewText = (previewBuilding && buildingText(previewBuilding).trim()) || text.trim();
-  const previewSplash = { imageUrl: saved.imageUrl, text: previewText, backgroundColor };
-  const previewHasContent = Boolean(previewSplash.imageUrl || previewSplash.text);
+  const previewBuilding = buildings.find((b) => b.id === previewId) || buildings[0] || null;
+  const previewSplash = {
+    imageUrl: saved.imageUrl,
+    groupText: text.trim(),
+    buildingText: previewBuilding ? buildingText(previewBuilding).trim() : '',
+    backgroundColor,
+  };
+  const previewHasContent = Boolean(previewSplash.imageUrl || previewSplash.groupText || previewSplash.buildingText);
 
   async function run(label, action, successMessage) {
     setBusy(label);
@@ -125,8 +126,21 @@ export default function GroupSplashEditor({ group, buildings, onSaved, onBuildin
             <span className="muted">PNG, JPEG, or WEBP, up to 5 MB. A logo or banner works best.</span>
           </div>
 
+          <label className="splash-editor__field">
+            <span className="splash-editor__label">Common text (all buildings)</span>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              maxLength={TEXT_MAX_LENGTH}
+              rows={2}
+              placeholder="Optional, e.g. a company slogan"
+            />
+            <span className="muted">Shown under the image for every building in this group, including buildings added later.</span>
+          </label>
+
           <div className="splash-editor__field">
             <span className="splash-editor__label">Text for each building</span>
+            <span className="muted">Shown under the common text, e.g. the facility name. Leave blank to show only the common text.</span>
             {buildings.length === 0 ? (
               <span className="muted">No buildings in this group yet.</span>
             ) : (
@@ -140,26 +154,13 @@ export default function GroupSplashEditor({ group, buildings, onSaved, onBuildin
                       onFocus={() => setPreviewId(b.id)}
                       maxLength={TEXT_MAX_LENGTH}
                       rows={2}
-                      placeholder={text.trim() ? `Uses default text: ${text.trim()}` : 'e.g. Dallas Office'}
+                      placeholder="e.g. Dallas Office"
                     />
                   </label>
                 ))}
               </div>
             )}
           </div>
-
-          <label className="splash-editor__field">
-            <span className="splash-editor__label">Default text</span>
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onFocus={() => setPreviewId(GROUP_DEFAULT_PREVIEW)}
-              maxLength={TEXT_MAX_LENGTH}
-              rows={2}
-              placeholder="Optional, e.g. Welcome! Let's get you where you're going."
-            />
-            <span className="muted">Shown for any building above that's left blank, including buildings added later.</span>
-          </label>
 
           <div className="row" style={{ flexWrap: 'wrap', gap: 16 }}>
             <label className="row" style={{ gap: 6 }}>
@@ -192,21 +193,20 @@ export default function GroupSplashEditor({ group, buildings, onSaved, onBuildin
         </form>
 
         <div className="splash-editor__preview">
-          <label className="splash-editor__field">
-            <span className="splash-editor__label">Preview as</span>
-            <select
-              value={previewBuilding ? previewBuilding.id : GROUP_DEFAULT_PREVIEW}
-              onChange={(e) => setPreviewId(e.target.value)}
-              style={{ maxWidth: 212 }}
-            >
-              {buildings.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-              <option value={GROUP_DEFAULT_PREVIEW}>Default text</option>
-            </select>
-          </label>
+          {buildings.length > 0 ? (
+            <label className="splash-editor__field">
+              <span className="splash-editor__label">Preview as</span>
+              <select value={previewBuilding.id} onChange={(e) => setPreviewId(e.target.value)} style={{ maxWidth: 212 }}>
+                {buildings.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <span className="splash-editor__label">Preview</span>
+          )}
           <div className="splash-editor__phone">
             {previewHasContent ? (
               <CustomSplash splash={previewSplash} preview />

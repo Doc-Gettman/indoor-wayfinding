@@ -1,6 +1,7 @@
 // QR-scan splash screens. A building group owns the shared look (image,
-// background, duration) plus default text; each building may override the
-// text with its own (e.g. "Dallas Office" under the Kimley-Horn logo).
+// background, duration) plus common text shown for every building (e.g. a
+// company slogan); each building adds its own text shown beneath it (e.g.
+// "Dallas Office"). Visitors see: image, then group text, then building text.
 
 export const SPLASH_TEXT_MAX_LENGTH = 500;
 export const SPLASH_DURATION_MIN = 1;
@@ -18,11 +19,13 @@ export const DEFAULT_GROUP_SPLASH = {
 export function effectiveSplash(group, buildingSplashText) {
   if (!group) return null;
   const splash = { ...DEFAULT_GROUP_SPLASH, ...group.splash };
-  const text = buildingSplashText || splash.text || '';
-  if (!splash.imageUrl && !text) return null;
+  const groupText = splash.text || '';
+  const buildingText = buildingSplashText || '';
+  if (!splash.imageUrl && !groupText && !buildingText) return null;
   return {
     imageUrl: splash.imageUrl || null,
-    text,
+    groupText,
+    buildingText,
     backgroundColor: splash.backgroundColor,
     durationSeconds: splash.durationSeconds,
   };

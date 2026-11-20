@@ -7,18 +7,20 @@ import { effectiveSplash } from './splash.js';
 
 const kimleyHorn = { id: 'g1', name: 'Kimley-Horn', splash: { imageUrl: 'https://x/logo.png', text: 'Welcome', backgroundColor: '#000000', durationSeconds: 4 } };
 
-test('building text overrides group text; group image/colors/duration are shared', () => {
+test('group text and building text both show; group image/colors/duration are shared', () => {
   assert.deepEqual(effectiveSplash(kimleyHorn, 'Dallas Office'), {
-    imageUrl: 'https://x/logo.png', text: 'Dallas Office', backgroundColor: '#000000', durationSeconds: 4,
+    imageUrl: 'https://x/logo.png', groupText: 'Welcome', buildingText: 'Dallas Office', backgroundColor: '#000000', durationSeconds: 4,
   });
-  assert.equal(effectiveSplash(kimleyHorn, '').text, 'Welcome');
+  const noBuildingText = effectiveSplash(kimleyHorn, '');
+  assert.equal(noBuildingText.groupText, 'Welcome');
+  assert.equal(noBuildingText.buildingText, '');
 });
 
 test('no group, or nothing to show, means the default GoldenKey splash', () => {
   assert.equal(effectiveSplash(null, 'Dallas Office'), null);
   assert.equal(effectiveSplash({ id: 'g2', name: 'Empty' }, ''), null);
   assert.deepEqual(effectiveSplash({ id: 'g2', name: 'Text only' }, 'Austin Office'), {
-    imageUrl: null, text: 'Austin Office', backgroundColor: '#ffffff', durationSeconds: 3,
+    imageUrl: null, groupText: '', buildingText: 'Austin Office', backgroundColor: '#ffffff', durationSeconds: 3,
   });
 });
 
