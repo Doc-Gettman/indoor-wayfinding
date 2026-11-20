@@ -155,6 +155,9 @@ export default function Groups() {
                 <button type="submit" disabled={!dirty || savingGroupId === group.id}>
                   {savingGroupId === group.id ? 'Saving...' : 'Save'}
                 </button>
+                <Link to={`/admin/groups/${group.id}/report`} className="button-link">
+                  Weekly summary
+                </Link>
                 <button type="button" className="danger" onClick={() => handleDeleteGroup(group.id)}>
                   Delete group
                 </button>

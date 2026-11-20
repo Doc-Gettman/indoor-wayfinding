@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getCollection } from '../db.js';
+import { getCollection, recordDirectionRequest } from '../db.js';
 import { findShortestPath } from '../lib/dijkstra.js';
 import { generateDirections } from '../lib/directions.js';
 import { generateLLMDirections } from '../lib/llmDirections.js';
@@ -14,6 +14,9 @@ const ELEVATOR_BASE_SECONDS = 45;
 const ELEVATOR_SECONDS_PER_FLOOR = 8;
 const STAIRS_BASE_SECONDS = 20;
 const STAIRS_SECONDS_PER_FLOOR = 18;
+// Tracking must never cost the visitor their directions: a slow or failing
+// insert is logged and abandoned rather than holding the response open.
+const TRACKING_TIMEOUT_MS = 3000;
 
 const ORDINAL_ONES = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9 };
 const ORDINAL_TEENS = {
@@ -155,7 +158,10 @@ async function handleWayfind(req, res) {
   const buildingId = req.params.buildingId;
 
   const cached = getCachedRoute(buildingId, from, to, avoidStairs);
-  if (cached?.routeMap && cached.routingVersion === ROUTING_VERSION) return res.json(cached);
+  if (cached?.routeMap && cached.routingVersion === ROUTING_VERSION) {
+    await trackDirectionRequest(buildingId, from, avoidStairs, cached);
+    return res.json(cached);
+  }
 
   const [nodes, edges, pois, floors, landmarks, qrcodes, spaces] = await Promise.all([
     getCollection(buildingId, 'nodes'),
@@ -219,7 +225,37 @@ async function handleWayfind(req, res) {
     destination: destinationPoi,
     floorsCrossed: [...new Set(result.nodes.map((n) => n.floorId))],
     routeMap: buildRouteMap(result.nodes, floorsById),
+    originQrCode: originQrCode ? { id: originQrCode.id, label: originQrCode.label } : null,
   };
   setCachedRoute(buildingId, from, to, payload, avoidStairs);
+  await trackDirectionRequest(buildingId, from, avoidStairs, payload);
   res.json(payload);
+}
+
+// Awaited (not fire-and-forget) because on Vercel the function can be frozen
+// as soon as the response is sent, dropping an in-flight insert.
+async function trackDirectionRequest(buildingId, originNodeId, avoidStairs, payload) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), TRACKING_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([
+      recordDirectionRequest({
+        building_id: buildingId,
+        origin_node_id: originNodeId,
+        qr_code_id: payload.originQrCode?.id || null,
+        qr_label: payload.originQrCode?.label || null,
+        destination_poi_id: payload.destination.id,
+        destination_name: payload.destination.name || null,
+        avoid_stairs: avoidStairs,
+        generated_by: payload.generatedBy,
+      }),
+      timeout,
+    ]);
+  } catch (err) {
+    console.error('Failed to record direction request:', err?.message || err);
+  } finally {
+    clearTimeout(timer);
+  }
 }

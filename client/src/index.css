@@ -224,6 +224,74 @@ input, select {
   text-decoration: none;
 }
 
+/* A <Link> styled like a plain button, for navigation inside button rows. */
+.button-link {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  border-radius: 6px;
+  padding: 6px 12px;
+  text-decoration: none;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.button-link:hover {
+  border-color: var(--accent);
+}
+
+/* Directions reports (BuildingReport / GroupReport) */
+.report-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.report-range {
+  flex-wrap: wrap;
+}
+
+.report-total {
+  font-size: 16px;
+}
+
+.report-table-scroll {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  background: var(--bg);
+}
+
+.report-table th,
+.report-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.report-table thead th {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.report-table tfoot th {
+  border-top: 2px solid var(--border);
+  border-bottom: none;
+}
+
+.report-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-table td.muted {
+  font-size: inherit;
+}
+
 .building-groups {
   display: flex;
   flex-direction: column;

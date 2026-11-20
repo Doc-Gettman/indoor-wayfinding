@@ -70,6 +70,36 @@ export async function saveCollection(buildingId, name, data) {
   invalidateRouteCache(buildingId);
 }
 
+// Usage tracking — see server/sql/direction_requests.sql for the table.
+export async function recordDirectionRequest(row) {
+  const { error } = await supabase.from('direction_requests').insert(row);
+  if (error) throw error;
+}
+
+// Supabase caps each select at 1000 rows by default, so page through the
+// range rather than silently truncating busy buildings' reports.
+const REQUEST_PAGE_SIZE = 1000;
+
+export async function listDirectionRequests({ buildingIds, since, until }) {
+  if (!buildingIds.length) return [];
+  const rows = [];
+  for (let offset = 0; ; offset += REQUEST_PAGE_SIZE) {
+    let query = supabase
+      .from('direction_requests')
+      .select('id, created_at, building_id, origin_node_id, qr_code_id, qr_label, destination_poi_id, destination_name, avoid_stairs')
+      .in('building_id', buildingIds)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + REQUEST_PAGE_SIZE - 1);
+    if (since) query = query.gte('created_at', since);
+    if (until) query = query.lt('created_at', until);
+    const { data, error } = await query;
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < REQUEST_PAGE_SIZE) return rows;
+  }
+}
+
 export function nextId(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
 }

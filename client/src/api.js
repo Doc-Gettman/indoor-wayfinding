@@ -108,6 +108,10 @@ export const api = {
   deleteQrCode: (buildingId, qrId) => request(`/buildings/${buildingId}/qrcodes/${qrId}`, { method: 'DELETE' }),
   qrCodeImageUrl: (buildingId, qrId) => `${BASE}/buildings/${buildingId}/qrcodes/${qrId}/image`,
 
+  buildingRequestReport: (buildingId, query) =>
+    request(`/buildings/${buildingId}/reports/direction-requests?${new URLSearchParams(query)}`),
+  groupRequestSummary: (groupId, query) => request(`/groups/${groupId}/reports/direction-requests?${new URLSearchParams(query)}`),
+
   wayfind: (buildingId, from, to, avoidStairs = true) =>
     request(`/buildings/${buildingId}/wayfind?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&avoidStairs=${avoidStairs}`),
 };

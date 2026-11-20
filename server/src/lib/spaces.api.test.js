@@ -16,6 +16,7 @@ mock.module('../db.js', { namedExports: {
   getCollection, saveCollection, nextId: (prefix) => `${prefix}-${++serial}`,
   listBuildings: async () => [{ id: 'building', name: 'Hospital' }], listGroups: async () => [],
   saveBuildings: async () => {}, saveBuildingMetadata: async () => {},
+  recordDirectionRequest: async () => {},
 } });
 mock.module('../middleware/auth.js', { namedExports: {
   requireAdmin: (req, res, next) => req.headers['x-test-admin'] === 'yes' ? next() : res.status(401).json({ error: 'Admin login required' }),

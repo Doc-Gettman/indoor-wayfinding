@@ -14,6 +14,7 @@ import { landmarksRouter } from './routes/landmarks.js';
 import { qrcodesRouter } from './routes/qrcodes.js';
 import { wayfindRouter } from './routes/wayfind.js';
 import { spacesRouter } from './routes/spaces.js';
+import { buildingReportsRouter, groupReportsRouter } from './routes/reports.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -25,6 +26,7 @@ const api = Router();
 api.get('/health', (req, res) => res.json({ ok: true }));
 api.use('/auth', authRouter);
 api.use('/buildings', buildingsRouter);
+api.use('/groups/:groupId/reports', groupReportsRouter);
 api.use('/groups', groupsRouter);
 
 const buildingSubresources = Router({ mergeParams: true });
@@ -37,6 +39,7 @@ buildingSubresources.use('/destination-types', destinationTypesRouter);
 buildingSubresources.use('/landmarks', landmarksRouter);
 buildingSubresources.use('/qrcodes', qrcodesRouter);
 buildingSubresources.use('/wayfind', wayfindRouter);
+buildingSubresources.use('/reports', buildingReportsRouter);
 api.use('/buildings/:buildingId', buildingSubresources);
 
 app.use('/api', api);

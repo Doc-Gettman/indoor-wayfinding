@@ -7,6 +7,8 @@ import FloorEditor from './pages/FloorEditor.jsx';
 import DestinationTypes from './pages/DestinationTypes.jsx';
 import Groups from './pages/Groups.jsx';
 import Wayfind from './pages/Wayfind.jsx';
+import BuildingReport from './pages/BuildingReport.jsx';
+import GroupReport from './pages/GroupReport.jsx';
 
 function RequireAdmin({ children }) {
   const { isAdmin } = useAuth();
@@ -65,6 +67,22 @@ export default function App() {
           element={
             <RequireAdmin>
               <BuildingDetail />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/groups/:groupId/report"
+          element={
+            <RequireAdmin>
+              <GroupReport />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/buildings/:buildingId/report"
+          element={
+            <RequireAdmin>
+              <BuildingReport />
             </RequireAdmin>
           }
         />
