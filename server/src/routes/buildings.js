@@ -1,5 +1,15 @@
 import { Router } from 'express';
-import { getCollection, listBuildings, listGroups, nextId, saveBuildingMetadata, saveBuildings, saveCollection } from '../db.js';
+import {
+  getBuildingMetadata,
+  getCollection,
+  listBuildings,
+  listGroups,
+  nextId,
+  saveBuildingMetadata,
+  saveBuildings,
+  saveCollection,
+} from '../db.js';
+import { SPLASH_TEXT_MAX_LENGTH } from '../lib/splash.js';
 import { requireAdmin } from '../middleware/auth.js';
 
 export const buildingsRouter = Router();
@@ -148,12 +158,33 @@ buildingsRouter.put('/:buildingId', requireAdmin, async (req, res) => {
   if (groupId !== undefined) {
     const resolved = await resolveGroupId(groupId);
     if (resolved.error) return res.status(400).json({ error: resolved.error });
-    await saveBuildingMetadata(req.params.buildingId, { groupId: resolved.groupId });
+    // Merge, don't replace: metadata also holds the building's splashText.
+    const metadata = await getBuildingMetadata(req.params.buildingId);
+    await saveBuildingMetadata(req.params.buildingId, { ...metadata, groupId: resolved.groupId });
     buildings[index].groupId = resolved.groupId;
     const groups = await listGroups();
     buildings[index].groupName = resolved.groupId ? groups.find((g) => g.id === resolved.groupId)?.name || null : null;
   }
   res.json(buildings[index]);
+});
+
+// PUT /buildings/:buildingId/splash-text  { text }
+// This building's own splash-screen text (e.g. "Dallas Office"), shown with
+// its group's shared splash image/background. Blank falls back to the
+// group's default text.
+buildingsRouter.put('/:buildingId/splash-text', requireAdmin, (req, res, next) => {
+  (async () => {
+    const buildings = await listBuildings();
+    if (!buildings.some((b) => b.id === req.params.buildingId)) return res.status(404).json({ error: 'Building not found' });
+    const text = String(req.body?.text ?? '').replace(/\r\n/g, '\n').trim();
+    if (text.length > SPLASH_TEXT_MAX_LENGTH) {
+      return res.status(400).json({ error: `Splash text must be ${SPLASH_TEXT_MAX_LENGTH} characters or fewer` });
+    }
+    const metadata = await getBuildingMetadata(req.params.buildingId);
+    await saveBuildingMetadata(req.params.buildingId, { ...metadata, splashText: text });
+    const updated = (await listBuildings()).find((b) => b.id === req.params.buildingId);
+    res.json(updated);
+  })().catch(next);
 });
 
 buildingsRouter.post('/:buildingId/copy', requireAdmin, async (req, res) => {

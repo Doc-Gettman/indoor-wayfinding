@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import GroupSplashEditor from '../components/GroupSplashEditor.jsx';
 
 export default function Groups() {
   const [groups, setGroups] = useState(null);
@@ -197,6 +198,13 @@ export default function Groups() {
                   Assign
                 </button>
               </div>
+
+              <GroupSplashEditor
+                group={group}
+                buildings={groupBuildings}
+                onBuildingsSaved={() => api.listBuildings().then(setBuildings).catch((err) => setError(err.message))}
+                onSaved={(updated) => setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)))}
+              />
 
               <form className="row" style={{ marginTop: 8 }} onSubmit={(e) => handleCreateBuildingInGroup(e, group.id)}>
                 <input

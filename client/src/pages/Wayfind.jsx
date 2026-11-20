@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api.js';
+import CustomSplash from '../components/CustomSplash.jsx';
+
+const DEFAULT_SPLASH_MS = 2000;
+// How long a custom splash waits for its image before starting its timer
+// anyway, so a slow or broken image can't hold the visitor on the splash.
+const SPLASH_IMAGE_WAIT_MS = 4000;
 
 const UNKNOWN_FLOOR_ID = '__unknown_floor__';
 
@@ -343,7 +349,8 @@ export default function Wayfind() {
   const [searchParams] = useSearchParams();
   const originNodeId = searchParams.get('from');
 
-  const [showQrSplash, setShowQrSplash] = useState(Boolean(originNodeId));
+  const [splashDone, setSplashDone] = useState(false);
+  const [splashImageSettled, setSplashImageSettled] = useState(false);
   const [building, setBuilding] = useState(null);
   const [originNode, setOriginNode] = useState(null);
   const [originQrCode, setOriginQrCode] = useState(null);
@@ -365,19 +372,27 @@ export default function Wayfind() {
   const [directionsLoading, setDirectionsLoading] = useState(false);
   const [directionsError, setDirectionsError] = useState(null);
 
+  // The building tells us which splash to show (its group's custom one, or
+  // the default GoldenKey one), so the splash timer only starts once it loads.
+  // A custom splash's timer additionally waits for its image (up to a cap) so
+  // the visitor gets the full display time with the image actually visible.
+  const customSplash = building?.splash || null;
   useEffect(() => {
-    if (!originNodeId) {
-      setShowQrSplash(false);
-      return;
+    if (!originNodeId || !building || splashDone) return undefined;
+    let delay = DEFAULT_SPLASH_MS;
+    let onElapsed = () => setSplashDone(true);
+    if (customSplash) {
+      if (customSplash.imageUrl && !splashImageSettled) {
+        delay = SPLASH_IMAGE_WAIT_MS;
+        onElapsed = () => setSplashImageSettled(true);
+      } else {
+        delay = (customSplash.durationSeconds || 3) * 1000;
+      }
     }
-
-    setShowQrSplash(true);
-    const splashTimer = window.setTimeout(() => {
-      setShowQrSplash(false);
-    }, 2000);
-
-    return () => window.clearTimeout(splashTimer);
-  }, [originNodeId]);
+    const timer = window.setTimeout(onElapsed, delay);
+    return () => window.clearTimeout(timer);
+  }, [originNodeId, building, customSplash, splashImageSettled, splashDone]);
+  const showQrSplash = Boolean(originNodeId) && !splashDone;
 
   useEffect(() => {
     api.getBuilding(buildingId).then(setBuilding).catch((err) => setLoadError(err.message));
@@ -523,6 +538,28 @@ export default function Wayfind() {
       <div className="page wayfind-page">
         <p className="error">{loadError}</p>
       </div>
+    );
+  }
+
+  if (showQrSplash && !building) {
+    return (
+      <div className="splash-pending" role="status" aria-label="Loading">
+        <div className="custom-splash__dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    );
+  }
+
+  if (showQrSplash && customSplash) {
+    return (
+      <CustomSplash
+        splash={customSplash}
+        onImageSettled={() => setSplashImageSettled(true)}
+        onContinue={() => setSplashDone(true)}
+      />
     );
   }
 

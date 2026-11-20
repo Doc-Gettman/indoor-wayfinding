@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { invalidateRouteCache } from './lib/routeCache.js';
+import { effectiveSplash } from './lib/splash.js';
 
 export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -27,7 +28,11 @@ export async function listBuildings() {
     buildings.map(async (building) => {
       const metadata = await getBuildingMetadata(building.id);
       const groupId = metadata.groupId || null;
-      return { ...building, groupId, groupName: (groupId && groupsById.get(groupId)?.name) || null };
+      const group = (groupId && groupsById.get(groupId)) || null;
+      const splashText = metadata.splashText || '';
+      // splashText: the building's own override (for the admin editor);
+      // splash: what visitors actually see after scanning (null = GoldenKey).
+      return { ...building, groupId, groupName: group?.name || null, splashText, splash: effectiveSplash(group, splashText) };
     }),
   );
 }

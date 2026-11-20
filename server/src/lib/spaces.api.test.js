@@ -15,7 +15,7 @@ const saveCollection = async (building, name, value) => {
 mock.module('../db.js', { namedExports: {
   getCollection, saveCollection, nextId: (prefix) => `${prefix}-${++serial}`,
   listBuildings: async () => [{ id: 'building', name: 'Hospital' }], listGroups: async () => [],
-  saveBuildings: async () => {}, saveBuildingMetadata: async () => {},
+  saveBuildings: async () => {}, saveBuildingMetadata: async () => {}, getBuildingMetadata: async () => ({}),
   recordDirectionRequest: async () => {},
 } });
 mock.module('../middleware/auth.js', { namedExports: {

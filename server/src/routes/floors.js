@@ -1,27 +1,10 @@
 import { Router } from 'express';
 import path from 'node:path';
-import { getCollection, saveCollection, nextId, supabase } from '../db.js';
+import { getCollection, saveCollection, nextId } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { ALLOWED_IMAGE_TYPES, createImageUploadUrl, removeStorageImage, storagePathFromImageUrl } from '../lib/storage.js';
 
 export const floorsRouter = Router({ mergeParams: true });
-
-const ALLOWED_IMAGE_TYPES = /^image\/(png|jpe?g|webp)$/;
-
-// imagePath is a public storage URL like
-// `${SUPABASE_URL}/storage/v1/object/public/floor-images/<storagePath>?v=<cache-buster>`.
-// Pull the storagePath back out so we can remove the underlying file.
-function storagePathFromImageUrl(imagePath) {
-  const marker = '/floor-images/';
-  const markerIndex = imagePath.indexOf(marker);
-  if (markerIndex === -1) return null;
-  return imagePath.slice(markerIndex + marker.length).split('?')[0];
-}
-
-async function removeStorageImage(imagePath) {
-  const storagePath = storagePathFromImageUrl(imagePath);
-  if (!storagePath) return;
-  await supabase.storage.from('floor-images').remove([storagePath]);
-}
 
 floorsRouter.get('/', async (req, res) => {
   res.json(await getCollection(req.params.buildingId, 'floors'));
@@ -59,9 +42,6 @@ floorsRouter.delete('/:floorId', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Returns a short-lived signed URL the browser uploads the image bytes to
-// directly, bypassing the API's own request body (Vercel's serverless
-// functions cap request bodies well under floorplan-scan file sizes).
 floorsRouter.post('/:floorId/image-upload-url', requireAdmin, async (req, res) => {
   const { contentType, extension } = req.body || {};
   if (!contentType || !ALLOWED_IMAGE_TYPES.test(contentType)) {
@@ -69,12 +49,11 @@ floorsRouter.post('/:floorId/image-upload-url', requireAdmin, async (req, res) =
   }
   const ext = extension || path.extname(contentType).replace('image/', '.') || '.png';
   const storagePath = `buildings/${req.params.buildingId}/floors/${req.params.floorId}${ext}`;
-  const { data, error } = await supabase.storage.from('floor-images').createSignedUploadUrl(storagePath, { upsert: true });
-  if (error) return res.status(500).json({ error: error.message });
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('floor-images').getPublicUrl(storagePath);
-  res.json({ signedUrl: data.signedUrl, token: data.token, path: storagePath, publicUrl });
+  try {
+    res.json(await createImageUploadUrl(storagePath));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 floorsRouter.post('/:floorId/image', requireAdmin, async (req, res) => {

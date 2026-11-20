@@ -45,6 +45,20 @@ export const api = {
   createGroup: (name) => request('/groups', { method: 'POST', body: json({ name }) }),
   updateGroup: (groupId, name) => request(`/groups/${groupId}`, { method: 'PUT', body: json({ name }) }),
   deleteGroup: (groupId) => request(`/groups/${groupId}`, { method: 'DELETE' }),
+  updateGroupSplash: (groupId, data) => request(`/groups/${groupId}/splash`, { method: 'PUT', body: json(data) }),
+  uploadGroupSplashImage: async (groupId, file) => {
+    const extension = `.${file.name.split('.').pop().toLowerCase()}`;
+    const { signedUrl, publicUrl } = await request(`/groups/${groupId}/splash-image-upload-url`, {
+      method: 'POST',
+      body: json({ contentType: file.type, extension }),
+    });
+    const uploadRes = await fetch(signedUrl, { method: 'PUT', headers: { 'content-type': file.type }, body: file });
+    if (!uploadRes.ok) throw new Error(`Image upload failed: ${uploadRes.status}`);
+    return request(`/groups/${groupId}/splash-image`, { method: 'POST', body: json({ imageUrl: publicUrl }) });
+  },
+  removeGroupSplashImage: (groupId) => request(`/groups/${groupId}/splash-image`, { method: 'DELETE' }),
+  updateBuildingSplashText: (buildingId, text) =>
+    request(`/buildings/${buildingId}/splash-text`, { method: 'PUT', body: json({ text }) }),
 
   listFloors: (buildingId) => request(`/buildings/${buildingId}/floors`),
   createFloor: (buildingId, data) => request(`/buildings/${buildingId}/floors`, { method: 'POST', body: json(data) }),

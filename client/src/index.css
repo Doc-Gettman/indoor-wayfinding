@@ -80,7 +80,7 @@ a {
   color: var(--accent);
 }
 
-button, input, select {
+button, input, select, textarea {
   font: inherit;
   color: inherit;
 }
@@ -116,7 +116,7 @@ button:disabled {
   cursor: default;
 }
 
-input, select {
+input, select, textarea {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
@@ -1054,5 +1054,193 @@ input, select {
 @media print {
   .no-print {
     display: none !important;
+  }
+}
+
+/* Custom per-group QR splash (components/CustomSplash.jsx) */
+.splash-pending {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.splash-pending .custom-splash__dots span {
+  background: currentColor;
+}
+
+.custom-splash {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 24px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.custom-splash--preview {
+  min-height: 100%;
+  height: 100%;
+  padding: 20px 14px;
+  gap: 12px;
+}
+
+.custom-splash__image {
+  display: block;
+  max-width: min(100%, 420px);
+  max-height: 50svh;
+  object-fit: contain;
+  animation: custom-splash-fade 400ms ease-out both;
+}
+
+.custom-splash--preview .custom-splash__image {
+  max-height: 55%;
+}
+
+.custom-splash__text {
+  max-width: 420px;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.custom-splash--preview .custom-splash__text {
+  font-size: 12px;
+}
+
+.custom-splash__dots {
+  display: flex;
+  gap: 10px;
+}
+
+.custom-splash__dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  opacity: 0.3;
+  animation: qr-splash-pulse 1.5s ease-in-out infinite;
+}
+
+.custom-splash__dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.custom-splash__dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+.custom-splash__continue {
+  background: transparent;
+  opacity: 0.8;
+  padding: 8px 20px;
+}
+
+@keyframes custom-splash-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .custom-splash__image,
+  .custom-splash__dots span {
+    animation: none;
+  }
+}
+
+/* Splash editor on the Groups page (components/GroupSplashEditor.jsx) */
+.splash-editor {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.splash-editor > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 500;
+}
+
+.splash-editor__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 4px 14px 14px;
+}
+
+.splash-editor__fields {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.splash-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.splash-editor__field textarea {
+  resize: vertical;
+}
+
+.splash-editor__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.splash-editor__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.splash-editor__phone {
+  width: 200px;
+  height: 360px;
+  border: 6px solid var(--text-h);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--bg-alt);
+}
+
+.splash-editor__empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  text-align: center;
+}
+
+.splash-editor__buildings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.splash-editor__building {
+  display: grid;
+  grid-template-columns: minmax(100px, 160px) 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.splash-editor__building > span {
+  padding-top: 7px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .splash-editor__building {
+    grid-template-columns: 1fr;
   }
 }
